@@ -13,7 +13,7 @@ cd TS-FSAR
 
 ## 2. 创建环境
 
-推荐 Python 3.8.20、PyTorch 2.2.2、torchvision 0.17.2、Transformers 4.46.3、decord 0.6.0。CUDA wheel 必须与校园驱动兼容；不要修改系统驱动。无 sudo 时使用平台已有 CUDA 容器或用户目录 Conda：
+推荐 Python 3.8.20、PyTorch 2.2.2、torchvision 0.17.2、Transformers 4.46.3、decord 0.6.0。当前 A10 每卡约 23028 MB；配置固定为每个 episode 一个 task（`TRAIN.BATCH_SIZE=1`、`BATCH_SIZE_PER_TASK=1`），这是原协议要求，也给 DTO 采样梯度保留显存余量。不要把这个 episode batch 提高到 2，否则需要重新锁定训练协议。CUDA wheel 必须与校园驱动兼容；不要修改系统驱动。无 sudo 时使用平台已有 CUDA 容器或用户目录 Conda：
 
 ```bash
 bash scripts/setup_campus.sh

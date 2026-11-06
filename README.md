@@ -144,3 +144,9 @@ Our code is built upon [CLIP-FSAR](https://github.com/alibaba-mmai-research/CLIP
 
 ## Contact
 If you have any questions, please create an issue or contact Yao Zhang at zyemail@mail.dlut.edu.cn.
+
+## DTO-KD gradient-coordination experiments
+
+The branch `research/dto-kd-fsar-gradient-coordination` contains the CPU-validated DTO-KD adapter and portable campus scripts. It provides E0 (original), E1 (amortized DTO-KD), E2 (static KL controls at 0.05/0.1/0.2), and E3 (gradient-scale-matched KL) for SSv2-Small 1-shot and 5-shot. No formal GPU training is started on the development server.
+
+See [`docs/CAMPUS_DEPLOYMENT.md`](docs/CAMPUS_DEPLOYMENT.md) for the complete deployment order. The code repository excludes videos, CLIP weights, and checkpoints; import those separately, verify their SHA256 values, then run `scripts/campus_preflight.sh` and `scripts/run_campus_experiment.sh`.

@@ -5,7 +5,13 @@ from pathlib import Path
 def main():
  p=argparse.ArgumentParser();p.add_argument('--data-root',default=os.environ.get('TSFSAR_SSV2_ROOT','/data/fsar_workspace/datasets/SSv2-Small'));p.add_argument('--skip-data',action='store_true');a=p.parse_args()
  import torch,transformers
- print('python',__import__('sys').version.split()[0]);print('torch',torch.__version__,'cuda',torch.version.cuda,'available',torch.cuda.is_available());print('transformers',transformers.__version__)
+ print('python',__import__('sys').version.split()[0]);print('torch',torch.__version__,'cuda',torch.version.cuda,'available',torch.cuda.is_available())
+ if torch.cuda.is_available():
+  props = torch.cuda.get_device_properties(0)
+  print('gpu_memory_mib', round(props.total_memory/2**20))
+  if props.total_memory < 20*2**30:
+   print('WARNING: less than 20 GiB visible GPU memory; keep episode batch size 1')
+ print('transformers',transformers.__version__)
  for m in ('decord','einops','yaml','sklearn'):importlib.import_module(m);print('import',m,'ok')
  model=Path('model/vit-b-16'); req=('config.json','pytorch_model.bin','preprocessor_config.json','tokenizer.json','vocab.json','merges.txt'); missing=[str(model/x) for x in req if not (model/x).is_file()]
  if missing:raise SystemExit('missing CLIP files: '+', '.join(missing))
