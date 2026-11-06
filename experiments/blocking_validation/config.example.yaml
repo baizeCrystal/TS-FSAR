@@ -1,0 +1,13 @@
+dataset: ssv2_small
+shot: 1
+seed: 0
+output_dir: output/blocking_validation
+device: cpu
+max_steps: 100
+checkpoint_every: 25
+kl_temperature: 4.0
+kl:
+  mode: selective
+  attenuation: 0.5
+  interference_threshold: 0.0
+  seed: 0
