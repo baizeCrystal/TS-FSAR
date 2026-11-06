@@ -18,6 +18,9 @@ from trainers.ts_fsar import TS_FSAR
 import utils.logging as logging
 from utils.config import Config
 import os
+import sys
+import time
+import json
 
 
 scaler = GradScaler()
@@ -29,7 +32,8 @@ def train_epoch(
     model.train()
     train_meter.iter_tic()
     total_loss = 0.
-    best_acc = 0.
+    best_acc = -float('inf')
+    best_iter = None
     for cur_iter, task_dict in enumerate(train_loader):
         if cur_iter >= cfg.TRAIN.NUM_TRAIN_TASKS:
                 break
@@ -53,24 +57,38 @@ def train_epoch(
             )
             loss = output_dict['loss']
         scaler.scale(loss).backward()
-        if (cur_iter + 1) % cfg.TRAIN.VAL_FRE_ITER == 0:
-            save_path = os.path.join(
-                cfg.OUTPUT_DIR_SAVE, 
-                f"model_iter_{cur_iter}.pth"
-            )
-            torch.save(model.state_dict(), save_path)
-            logger.info(f"Checkpoint saved at iter {cur_iter}: {save_path}")
+        if ((cur_iter + 1) >= int(getattr(cfg.TRAIN, 'EVAL_START_EPISODE', 1))
+                and (cur_iter + 1) % cfg.TRAIN.VAL_FRE_ITER == 0):
             model.eval()
             print("Validating ...")
             acc, _ = test(val_loader, model, test_embeddings, cfg)
-            logger.info(
-                f"[VAL] Iter {cur_iter}: Acc={acc:.2f}%")
             model.train()
+            if not math.isfinite(acc):
+                raise RuntimeError(f"Non-finite validation accuracy at iter {cur_iter}: {acc}")
             if acc > best_acc:
                 best_acc = acc
-                torch.save(model.state_dict(), cfg.OUTPUT_DIR_SAVE + '/model_best.pth')
+                best_iter = cur_iter
+                best_path = os.path.join(cfg.OUTPUT_DIR_SAVE, 'model_best.pth')
+                torch.save(model.state_dict(), best_path + '.tmp')
+                os.replace(best_path + '.tmp', best_path)
                 logger.info(
                     f"New Best Acc at iter {cur_iter}: {best_acc:.2f}% ")
+            logger.info(
+                "[VAL] Iter %d: Acc=%.2f%% | Best Acc=%.2f%% at episode %d (iter %d)",
+                cur_iter, acc, best_acc, best_iter + 1, best_iter)
+            best_result = {
+                'best_accuracy_percent': float(best_acc),
+                'best_iteration': best_iter,
+                'best_episode': best_iter + 1,
+                'latest_accuracy_percent': float(acc),
+                'latest_iteration': cur_iter,
+                'checkpoint': os.path.join(cfg.OUTPUT_DIR_SAVE, 'model_best.pth'),
+            }
+            result_path = os.path.join(cfg.OUTPUT_DIR_SAVE, 'best_result.json')
+            with open(result_path + '.tmp', 'w') as stream:
+                json.dump(best_result, stream, indent=2)
+                stream.write('\n')
+            os.replace(result_path + '.tmp', result_path)
         if ((cur_iter + 1) % cfg.TRAIN.BATCH_SIZE_PER_TASK == 0):
             scaler.step(optimizer)
             scaler.update()
@@ -88,14 +106,23 @@ def train_epoch(
         train_meter.iter_tic()
         lr_scheduler(cur_iter)
     train_meter.log_epoch_stats()
+    if best_iter is not None:
+        logger.info(
+            "[TRAIN_SUMMARY] Best validation accuracy=%.2f%% at episode %d (iter %d) | checkpoint=%s",
+            best_acc, best_iter + 1, best_iter,
+            os.path.join(cfg.OUTPUT_DIR_SAVE, 'model_best.pth'))
     train_meter.reset()
 
 def test(val_loader, model, class_embeddings, cfg):
     model.eval()
     test_accs = []
     test_losses = []
-    progress_bar = tqdm(val_loader, total=len(val_loader), desc=f"Processing {cfg.TEST.DATASET}")
-    for task_dict in progress_bar:
+    num_episodes = len(val_loader)
+    log_period = max(1, int(getattr(cfg.TEST, "PROGRESS_LOG_PERIOD", 1000)))
+    started_at = time.perf_counter()
+    progress_bar = tqdm(val_loader, total=num_episodes, desc=f"Processing {cfg.TEST.DATASET}",
+                        disable=not sys.stderr.isatty(), mininterval=5.0)
+    for episode_index, task_dict in enumerate(progress_bar, start=1):
         context_imgs = task_dict['support_set'].squeeze(0).cuda()
         context_labels = task_dict['support_labels'].squeeze(0).long().cuda()
         context_real_labels = task_dict['real_support_labels'].squeeze(0).long().cuda()
@@ -118,7 +145,13 @@ def test(val_loader, model, class_embeddings, cfg):
             loss = output_dict['loss']
 
             test_accs.append(acc)
-            test_losses.append(loss.item())           
+            test_losses.append(loss.item())
+        if episode_index % log_period == 0 or episode_index == num_episodes:
+            elapsed = time.perf_counter() - started_at
+            rate = episode_index / max(elapsed, 1e-9)
+            logger.info("[EVAL_PROGRESS] %d/%d episodes | %.2f episodes/s | elapsed %.1fs | ETA %.1fs",
+                        episode_index, num_episodes, rate, elapsed,
+                        (num_episodes - episode_index) / rate)
 
     avg_acc = np.mean(test_accs) * 100
     avg_loss = np.mean(test_losses)
@@ -164,7 +197,7 @@ def main(cfg):
         lr_scheduler = cosine_lr(optimizer, 0, cfg.TRAIN.NUM_TRAIN_TASKS)
         text_embeddings = build_embeddings(cfg.TRAIN.CLASS_NAME, cfg.TRAIN.LLM_train_json, text_clip, tokenizer)
         text_embeddings_val = build_embeddings(cfg.TEST.CLASS_NAME, cfg.TEST.LLM_test_json, text_clip, tokenizer)
-        train_meter = TrainMeter(len(train_loader), cfg)
+        train_meter = TrainMeter(min(len(train_loader), cfg.TRAIN.NUM_TRAIN_TASKS), cfg)
         logger.info("Start epoch: {}".format(cfg.TRAIN.START_EPOCH + 1))
         if cfg.LOG_MODEL_INFO:
             tl.log_model_info(model, cfg, use_train_input=True)

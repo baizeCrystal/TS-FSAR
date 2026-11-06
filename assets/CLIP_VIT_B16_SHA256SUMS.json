@@ -1,0 +1,16 @@
+{
+  "model": "openai/clip-vit-base-patch16",
+  "local_directory": "model/vit-b-16",
+  "files": {
+    "README.md": "7c3e9381bb204935093ea878541bfa84c9773ab924f0ea93a4f398c78660e197",
+    "config.json": "eaf1c9089a8553c913d27ea66407f8bfc2be9989c80c9f331ddb3d63d4c5e8ad",
+    "gitattributes": "fa057bb09b78fe6d33af5a01440be5e8c881cd8055de35ee5588ea759cf57bfc",
+    "merges.txt": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+    "preprocessor_config.json": "910e70b3956ac9879ebc90b22fb3bc8a75b6a0677814500101a4c072bd7857bd",
+    "pytorch_model.bin": "ec89c7b09c749a60aae3c9cd910516f24b58214a7df060b48962d14c469cfbf0",
+    "special_tokens_map.json": "f8c0d6c39aee3f8431078ef6646567b0aba7f2246e9c54b8b99d55c22b707cbf",
+    "tokenizer.json": "a83e0809aa4c3af7208b2df632a7a69668c6d48775b3c3fe4e1b1199d1f8b8f4",
+    "tokenizer_config.json": "3f74b6a4d97fee70b3b96921a687fc5e3f2fb583f5f81e7c178c0c22281beade",
+    "vocab.json": "3f0c4f7d2086b61b38487075278ea9ed04edb53a03cbb045b86c27190fa8fb69"
+  }
+}

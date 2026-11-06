@@ -201,6 +201,8 @@ class Video_few_shot(BaseVideoDataset):
                             real_target_labels.append(bc)
                     break   
                 except Exception as e:
+                    if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                        raise
                     success = False
                     traceback.print_exc()
                     logger.warning("Error at decoding. {}/{}. Vid index: {}, Vid path: {}".format(
@@ -230,16 +232,22 @@ class Video_few_shot(BaseVideoDataset):
                     )
                     break
                 except Exception as e:
+                    if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                        raise
                     success = False
                     traceback.print_exc()
                     logger.warning("Error at decoding. {}/{}. Vid index: {}, Vid path: {}".format(
                         retry+1, retries, index, sample_info["path"]
                     ))
             if not success:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Video decode failed: {sample_info['path']}")
                 logger.info("Error at decoding. Vid index: {}, Vid path: {}".format(
                     index, sample_info["path"]))
                 return self.__getitem__(index - 1) if index != 0 else self.__getitem__(index + 1)
             if data["video"].numel() == 0:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Empty decoded video: {sample_info['path']}")
                 logger.info("data[video].numel()=0. Vid index: {}, Vid path: {}".format(
                     index, sample_info["path"]))
                 return self.__getitem__(index - 1) if index != 0 else self.__getitem__(index + 1)
@@ -276,16 +284,22 @@ class Video_few_shot(BaseVideoDataset):
                     )
                     break
                 except Exception as e:
+                    if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                        raise
                     success = False
                     traceback.print_exc()
                     logger.warning("Error at decoding. {}/{}. Vid index: {}, Vid path: {}".format(
                         retry+1, retries, index, sample_info["path"]
                     ))
             if not success:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Video decode failed: {sample_info['path']}")
                 logger.info("Error at decoding. Vid index: {}, Vid path: {}".format(
                     index, sample_info["path"]))
                 return self.__getitem__(index - 1) if index != 0 else self.__getitem__(index + 1)
             if data["video"].numel() == 0:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Empty decoded video: {sample_info['path']}")
                 logger.info("data[video].numel()=0. Vid index: {}, Vid path: {}".format(
                     index, sample_info["path"]))
                 return self.__getitem__(index - 1) if index != 0 else self.__getitem__(index + 1)
@@ -321,16 +335,22 @@ class Video_few_shot(BaseVideoDataset):
                     )
                     break
                 except Exception as e:
+                    if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                        raise
                     success = False
                     traceback.print_exc()
                     logger.warning("Error at decoding. {}/{}. Vid index: {}, Vid path: {}".format(
                         retry+1, retries, index, sample_info["path"]
                     ))
             if not success:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Video decode failed: {sample_info['path']}")
                 logger.info("Error at decoding. Vid index: {}, Vid path: {}".format(
                     index, sample_info["path"]))
                 return self.__getitem__(index - 1) if index != 0 else self.__getitem__(index + 1)
             if data["video"].numel() == 0:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Empty decoded video: {sample_info['path']}")
                 logger.info("data[video].numel()=0. Vid index: {}, Vid path: {}".format(
                     index, sample_info["path"]))
                 return self.__getitem__(index - 1) if index != 0 else self.__getitem__(index + 1)

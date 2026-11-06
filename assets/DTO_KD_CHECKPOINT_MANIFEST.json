@@ -1,0 +1,18 @@
+{
+  "E0_global_KL_model_best.pth": {
+    "bytes": 406375259,
+    "sha256": "78aae7edcbea1f5a48f17aa28d9631ccf680f69c08535b40083cfaa4a46cf5cf"
+  },
+  "B_global_DIST_model_best.pth": {
+    "bytes": 406375323,
+    "sha256": "1a712e0d59c8466e08128b118743f568824c18ed28b2dfca73cdc60a85449059"
+  },
+  "C_episode_KL_model_best.pth": {
+    "bytes": 406375323,
+    "sha256": "c0ae36483380201cfa856bbf54cda41b2942e368e8e404d75c7fd5949d180551"
+  },
+  "D_episode_DIST_model_best.pth": {
+    "bytes": 406375323,
+    "sha256": "b9f17887da9bed8247ac650bed4336e86dbf6bc4b6fa8cd3f42f9eb2d93a2f02"
+  }
+}

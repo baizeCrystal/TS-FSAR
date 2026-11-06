@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+runs/
+output/
+model/vit-b-16/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.log
