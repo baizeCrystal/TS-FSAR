@@ -61,14 +61,16 @@ python scripts/verify_weights.py
 CUDA_VISIBLE_DEVICES='' python -m unittest \
   tests.test_dto_kd_cpu tests.test_campus_execution_cpu \
   tests.test_dto_kd_memory_cpu tests.test_campus_protocol_cpu \
-  tests.test_rigorous_protocol_cpu -v
+  tests.test_rigorous_protocol_cpu tests.test_campus_amp_acceptance_cpu -v
 ```
 
 文件检查覆盖全部 canonical 视频的存在、大小和读权限，不是全视频解码。禁止更换 CLIP 文件；加载形状不匹配会报错，取消随机替换 fallback。
 
 ## 3. 校园 CUDA 验收：先做这一阶段
 
-确认旧进程全部退出后，只占两张健康卡；这是完整真实 episode 的验收与短 smoke，不是正式训练。每种 shot 会做原 E0 与关闭适配/静态原系数的一步 loss/梯度/AdamW 更新对比，再做 E0/E1 三步训练（第 2 步梯度诊断）和各 2 个 Val episode。首步 AMP overflow、OOM、数值差异、非零 ECC 或其他失败都会拒绝签发通过报告。
+确认旧进程全部退出后，只占两张健康卡；这是完整真实 episode 的验收与短 smoke，不是正式训练。每种 shot 先让原 E0 在固定输入、完整初始权重和相同 RNG 下从默认 GradScaler scale=65536 开始，最多 17 次尝试（通常按半衰减，到 scale=1），直到出现一次有限梯度且实际改变参数的 AdamW 更新。跳过的尝试必须不改变参数和优化器状态，全部写入 `amp_attempts.jsonl`。关闭适配/静态原系数的候选各只尝试一次，必须在原 E0 的同一成功 scale 下通过 loss、梯度、参数更新对比；不能把两组都未更新当作等价性通过。
+
+然后做 E0/E1 各固定 32 个训练 episode 的 smoke（第 2 步梯度诊断）和各 2 个 Val episode。smoke 与正式训练均使用原默认 GradScaler，不使用校准后的较低初始 scale；记录初始溢出跳步，每组至少需有 3 次有效参数更新。验收校准不会传递模型、优化器或 scaler 的训练后状态给正式训练。超过重试上限、非有限前向 loss、候选溢出、更新数不足、OOM、数值差异或非零 ECC 均拒绝签发通过报告。首次 AMP 跳步本身不再直接判失败。
 
 ```bash
 ACCEPT_ROOT="runs/campus/acceptance_v2_seed0_$(date +%Y%m%d_%H%M%S)"
@@ -88,7 +90,7 @@ echo "$!" > "$ACCEPT_ROOT/shot5.pid"
 tail -f "$ACCEPT_ROOT/shot1.console.log" "$ACCEPT_ROOT/shot5.console.log"
 ```
 
-如果 shell 变量丢失：`ACCEPT_ROOT="$(cat runs/campus/latest_acceptance_root.txt)"`。`acceptance.json` 存在且 passed=true 才表示该次检查通过；仅有日志、初始化文件、失败报告或 shell 后台 PID 都不代表成功。查看生成的最大误差与 tolerance，不能将容差通过描述为位级相同。三步 smoke 也不是全程训练稳定性证明。
+如果 shell 变量丢失：`ACCEPT_ROOT="$(cat runs/campus/latest_acceptance_root.txt)"`。`acceptance.json` 存在且 passed=true 才表示该次检查通过；仅有日志、初始化文件、失败报告或 shell 后台 PID 都不代表成功。查看生成的最大误差与 tolerance、AMP backoff 记录、实际有效更新数，不能将容差通过描述为位级相同。32 个 episode 的 smoke 也不是全程训练稳定性证明。早期因 first-step AMP overflow 失败的目录完整保留，更新后使用新的验收输出目录。
 
 报告绑定代码指纹、shot/seed、PyTorch、GPU 型号与完整初始化 SHA256。新的全部实验严格加载同一个经过验证的初始状态，避免每个任务重复 CPU PCA，恢复同一初始 Dropout 随机流。不会从历史训练 checkpoint 开始。
 
@@ -169,6 +171,6 @@ python scripts/compare_rigorous_results.py \
 
 ## 验证边界
 
-原服务器验证记录（2026-11-07）：40 项单元/CPU 集成测试中 35 项通过、5 项 CUDA 测试跳过；14 份源实验配置的基础配方审计通过。CPU 集成覆盖实际采样器的 worker 一致性、TS_DCM/GLAC 损失路径、控制器公式和完整状态恢复；视觉编码器由合成特征替代，不能作为真实完整模型验收。
+原服务器验证记录（2026-11-07，AMP 验收修复后）：44 项测试中 38 项 CPU 测试通过、6 项 CUDA 测试跳过；14 份源实验配置的基础配方审计通过。CPU 集成覆盖实际采样器的 worker 一致性、TS_DCM/GLAC 损失路径、控制器公式和完整状态恢复；新增 AMP 模拟测试覆盖固定 RNG 重放、跳步无参数/优化器变化、同 scale 一次有效更新及持续溢出拒绝。视觉编码器由合成特征替代、AMP backoff 在 CPU 由模拟 scaler 注入，不能作为真实完整模型或 CUDA AMP 验收。
 
 原服务器只执行 CPU 合成测试，真实模型 CUDA 验收需要校园执行并提供产物。v2 原始数据/网络/损失/官方基础配方保持不变，但 RNG 组织、选模协议和 E1 直接权重更新均与旧校园批次有差异；旧/新对照必须如实标注。即便所有工程验收通过，也不能保证准确率提升；有效的研究结果可能是不提升或负结果。

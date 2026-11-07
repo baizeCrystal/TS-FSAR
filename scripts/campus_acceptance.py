@@ -2,8 +2,9 @@
 """Opt-in campus-only full-model CUDA acceptance, never formal training.
 
 Runs an actual training episode through released E0 and unchanged adapter loss
-paths, then three-step E0/E1 smoke checks with diagnostic step 2 and two Val
-episodes. A passed, source-hashed report is required by protocol v2 training.
+paths at one common finite AMP scale, then bounded E0/E1 smoke checks with
+default AMP, diagnostic step 2 and two Val episodes. A passed, source-hashed
+report is required by protocol v2 training.
 """
 import argparse
 import copy
@@ -52,6 +53,7 @@ def main():
 
 
 def run_acceptance(args, out):
+    print('ACCEPTANCE_STAGE importing dependencies', flush=True)
     import numpy as np
     import torch
     import yaml
@@ -63,13 +65,15 @@ def run_acceptance(args, out):
     from experiments.dto_kd.model import DTOTSFSAR
     from experiments.dto_kd.episodes import loader, unpack
     from experiments.dto_kd.gradient_utils import activation_context
+    from experiments.dto_kd.acceptance import one_successful_update
     from experiments.dto_kd.rigorous import train, configuration_signature
     from experiments.dto_kd.state import (atomic_torch_save, cpu_state, file_hash, model_hash,
-                                         restore_rng, rng_state, source_hash)
+                                         restore_rng, rng_state, source_hash, append_json)
     from scripts.audit_campus_protocol import merge
     from scripts.prepare_run_config import prepare_protocol
     from scripts.check_ssv2_files import check
 
+    print('ACCEPTANCE_STAGE verifying CLIP weights', flush=True)
     subprocess.run([sys.executable, str(ROOT / 'scripts/verify_weights.py')], check=True)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -83,11 +87,13 @@ def run_acceptance(args, out):
     raw['OUTPUT_DIR'] = raw['OUTPUT_DIR_SAVE'] = str(out)
     raw['DTO_KD'].update(UPDATE_RULE='paper_pi_softmax', ACTIVATION_OFFLOAD='diagnostics', TRACE_INTERVAL=0)
     prepare_protocol(raw, out / 'config.yaml', 'train')
+    print('ACCEPTANCE_STAGE checking dataset files', flush=True)
     dataset_check = check(raw['DATA']['DATA_ROOT_DIR'])
     (out / 'dataset_check.json').write_text(json.dumps(dataset_check, indent=2) + '\n')
     (out / 'config.yaml').write_text(yaml.safe_dump(raw, sort_keys=False))
     cfg = Config(load=False, cfg_dict=copy.deepcopy(raw))
     cfg.cfg_dict = copy.deepcopy(raw)
+    print('ACCEPTANCE_STAGE loading CLIP and building original PCA initialization', flush=True)
     image, text, tokenizer = build_model(cfg)
     device = torch.device('cuda:0')
     original = TS_FSAR(cfg, image)
@@ -104,31 +110,29 @@ def run_acceptance(args, out):
     inputs = unpack(batch, device)
     record = inputs[-1]
 
-    def step(model):
+    def step(model, name, init_scale=None, max_attempts=1):
         model.to(device).train()
         optimizer = construct_optimizer(model, cfg)
-        scaler = torch.cuda.amp.GradScaler()
-        restore_rng(initial_rng)
-        with activation_context('all'), torch.cuda.amp.autocast():
-            result = model(*inputs[:4], embeddings)
-        scaler.scale(result['loss']).backward()
-        scaler.unscale_(optimizer)
-        grads = {n: p.grad.detach().cpu().clone() if p.grad is not None else None
-                 for n, p in model.named_parameters() if p.requires_grad}
-        old_scale = scaler.get_scale()
-        scaler.step(optimizer)
-        scaler.update()
-        if scaler.get_scale() < old_scale:
-            raise RuntimeError('first-step AMP overflow: one-update acceptance not established')
-        values = {n: p.detach().cpu().clone() for n, p in model.named_parameters() if p.requires_grad}
-        summary = {'loss': float(result['loss'].detach()), 'accuracy': result['acc']}
-        if hasattr(model, 'clear_dto_cache'):
-            model.clear_dto_cache()
+        scaler = torch.cuda.amp.GradScaler(**({'init_scale': init_scale} if init_scale is not None else {}))
+
+        def forward():
+            with activation_context('all'), torch.cuda.amp.autocast():
+                return model(*inputs[:4], embeddings)
+
+        def record_attempt(row):
+            row = {'model': name, **row}
+            append_json(out / 'amp_attempts.jsonl', row)
+            print('ACCEPTANCE_AMP', json.dumps(row), flush=True)
+
+        print('ACCEPTANCE_STAGE one effective update:', name, flush=True)
+        grads, values, summary = one_successful_update(
+            model, initial, optimizer, scaler, forward, lambda: restore_rng(initial_rng),
+            record_attempt, max_attempts=max_attempts)
         model.cpu()
-        del optimizer, result
+        del optimizer, scaler
         return grads, values, summary
 
-    reference_gradients, reference_parameters, reference = step(original)
+    reference_gradients, reference_parameters, reference = step(original, 'original_E0', max_attempts=17)
     del original
     gc.collect()
     torch.cuda.empty_cache()
@@ -142,7 +146,7 @@ def run_acceptance(args, out):
         model.load_state_dict(initial, strict=True)
         if model_hash(model) != initial_hash:
             raise RuntimeError('adapter initialization differs from original')
-        gradients, parameters, summary = step(model)
+        gradients, parameters, summary = step(model, mode, init_scale=reference['successful_scale'])
         torch.testing.assert_close(torch.tensor(summary['loss']), torch.tensor(reference['loss']), rtol=1e-5, atol=1e-6)
         if summary['accuracy'] != reference['accuracy']:
             raise RuntimeError('unchanged objective changed training predictions')
@@ -166,12 +170,16 @@ def run_acceptance(args, out):
     del inputs, batch, reference_gradients, reference_parameters
     smokes = []
     for mode in ('off', 'dynamic'):
+        print('ACCEPTANCE_STAGE default-AMP smoke:', mode, flush=True)
         smoke_out = out / ('smoke_' + mode)
         smoke_out.mkdir()
         smoke_raw = copy.deepcopy(raw)
         smoke_raw['OUTPUT_DIR'] = smoke_raw['OUTPUT_DIR_SAVE'] = str(smoke_out)
-        smoke_raw['TRAIN'].update(NUM_TRAIN_TASKS=3, NUM_TEST_TASKS=2, VAL_FRE_ITER=3)
-        smoke_raw['DTO_KD'].update(MODE=mode, GRADIENT_SAMPLE_INTERVAL=2)
+        # Exercise the formal default scaler, including its initial skipped
+        # updates. This is a fixed acceptance-only budget, not a new recipe.
+        smoke_raw['TRAIN'].update(NUM_TRAIN_TASKS=32, NUM_TEST_TASKS=2, VAL_FRE_ITER=32)
+        smoke_raw['DTO_KD'].update(MODE=mode, GRADIENT_SAMPLE_INTERVAL=0,
+                                   GRADIENT_EARLY_STEPS=2, GRADIENT_EARLY_INTERVAL=2)
         smoke_raw['DATA_LOADER']['NUM_WORKERS'] = 0
         smoke_raw['LOG_PERIOD'] = 1
         cfg = Config(load=False, cfg_dict=copy.deepcopy(smoke_raw))
@@ -187,9 +195,10 @@ def run_acceptance(args, out):
         result = train(loader(cfg, 'train'), loader(cfg, 'test', 'val'), model, embeddings,
                        val_embeddings, optimizer, scheduler, torch.cuda.amp.GradScaler(), cfg, device,
                        {'configuration_signature': configuration_signature(cfg), 'source_sha256': source_hash()})
-        if result['successful_updates'] != 3:
-            raise RuntimeError('smoke did not exercise three successful optimizer updates')
-        smokes.append({'mode': mode, **result})
+        if result['successful_updates'] < 3:
+            raise RuntimeError('32-episode default-AMP smoke had fewer than three effective updates')
+        smokes.append({'mode': mode, 'minimum_required_successful_updates': 3,
+                       'initial_amp_scale': 65536., 'skipped_updates': 32 - result['successful_updates'], **result})
         del model, optimizer, scheduler
         gc.collect()
         torch.cuda.empty_cache()
@@ -199,10 +208,15 @@ def run_acceptance(args, out):
               'initial_model_sha256': initial_hash, 'initialization_file': bank.name,
               'initialization_file_sha256': file_hash(bank), 'episode0_sha256': record['episode_sha256'],
               'comparisons': comparisons, 'smokes': smokes,
+              'amp_reference': reference,
+              'amp_policy': 'Reference only: <=17 fixed-input backoff attempts from default scale. '
+                            'Equivalent candidates use the same successful scale, one attempt. '
+                            '32-episode smokes and formal training use the unchanged default scaler.',
               'dataset_check': dataset_check,
               'tolerances': {'loss_rtol': 1e-5, 'loss_atol': 1e-6, 'gradient_rtol': 1e-3,
                              'gradient_atol': 1e-5, 'parameter_rtol': 1e-5, 'parameter_atol': 1e-6},
-              'scope': 'one real episode equality and 3-step E0/E1 smoke; not final accuracy reproduction'}
+              'scope': 'one effective real-episode update equality and 32-episode E0/E1 smoke; '
+                       'not final accuracy reproduction or full-run stability proof'}
     (out / 'acceptance.json').write_text(json.dumps(report, indent=2) + '\n')
     print('CAMPUS_ACCEPTANCE_PASSED', out / 'acceptance.json', flush=True)
 

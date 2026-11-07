@@ -11,6 +11,7 @@ import torch
 
 from experiments.dto_kd.controller import DTOController
 from experiments.dto_kd.gradient_utils import activation_context, loss_gradients
+from experiments.dto_kd.acceptance import one_successful_update
 
 
 @unittest.skipUnless(os.environ.get("TSFSAR_RUN_CUDA_TESTS") == "1",
@@ -54,6 +55,35 @@ class DTOControllerCudaTest(unittest.TestCase):
     def test_paper_probability_update_with_cuda_losses(self):
         self.check_loss_dtype(torch.float32, update_rule='paper_pi_softmax')
         self.check_loss_dtype(torch.float16, update_rule='paper_pi_softmax')
+
+    def test_acceptance_backs_off_real_amp_and_compares_one_effective_update(self):
+        model = torch.nn.Linear(2, 2, bias=False).cuda()
+        initial = {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
+        rng = torch.cuda.get_rng_state()
+        inputs = torch.ones(2, 2, device='cuda')
+
+        def forward():
+            with torch.cuda.amp.autocast():
+                # Finite forward, but default-scaled FP16 backward overflows.
+                loss = (model(inputs).float() * 1000.).mean()
+            return {'loss': loss, 'acc': 0.}
+
+        def run(scale=None, max_attempts=17):
+            events = []
+            optimizer = torch.optim.AdamW(model.parameters(), lr=.001)
+            scaler = torch.cuda.amp.GradScaler(**({'init_scale': scale} if scale is not None else {}))
+            result = one_successful_update(model, initial, optimizer, scaler, forward,
+                                           lambda: torch.cuda.set_rng_state(rng), events.append, max_attempts)
+            return result, events
+
+        (gradients, parameters, summary), events = run()
+        self.assertGreater(summary['skipped_attempts'], 0)
+        self.assertEqual(sum(row['update_applied'] for row in events), 1)
+        (grads2, params2, _), events2 = run(summary['successful_scale'], max_attempts=1)
+        self.assertEqual(len(events2), 1)
+        for name in gradients:
+            torch.testing.assert_close(gradients[name], grads2[name], rtol=0, atol=0)
+            torch.testing.assert_close(parameters[name], params2[name], rtol=0, atol=0)
 
     def test_checkpoint_loaded_onto_cuda_restores_cpu_controller(self):
         source = DTOController(eta=0.03)
