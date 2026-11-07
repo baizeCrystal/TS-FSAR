@@ -27,6 +27,8 @@ def main():
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--gpu', type=int, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--reuse-initialization-report', type=Path,
+                        help='reuse only model/RNG initialization from a passed hashed report; rerun all checks')
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error('output-dir exists; choose a fresh directory')
@@ -65,7 +67,8 @@ def run_acceptance(args, out):
     from experiments.dto_kd.model import DTOTSFSAR
     from experiments.dto_kd.episodes import loader, unpack
     from experiments.dto_kd.gradient_utils import activation_context
-    from experiments.dto_kd.acceptance import one_successful_update
+    from experiments.dto_kd.acceptance import (one_successful_update, load_certified_initialization,
+                                               verify_smoke_schedule)
     from experiments.dto_kd.rigorous import train, configuration_signature
     from experiments.dto_kd.state import (atomic_torch_save, cpu_state, file_hash, model_hash,
                                          restore_rng, rng_state, source_hash, append_json)
@@ -93,13 +96,30 @@ def run_acceptance(args, out):
     (out / 'config.yaml').write_text(yaml.safe_dump(raw, sort_keys=False))
     cfg = Config(load=False, cfg_dict=copy.deepcopy(raw))
     cfg.cfg_dict = copy.deepcopy(raw)
-    print('ACCEPTANCE_STAGE loading CLIP and building original PCA initialization', flush=True)
+    print('ACCEPTANCE_STAGE loading CLIP', flush=True)
     image, text, tokenizer = build_model(cfg)
     device = torch.device('cuda:0')
-    original = TS_FSAR(cfg, image)
+    reused = None
+    if args.reuse_initialization_report:
+        cached, reused = load_certified_initialization(
+            args.reuse_initialization_report, args.shot, args.seed, torch.__version__,
+            torch.cuda.get_device_name(0))
+        print('ACCEPTANCE_STAGE strictly loading previously certified PCA initialization', flush=True)
+        original_flag = cfg.TEST.ENABLE
+        cfg.TEST.ENABLE = True
+        original = TS_FSAR(cfg, image)
+        cfg.TEST.ENABLE = original_flag
+        original.load_state_dict(cached['model'], strict=True)
+        if model_hash(original) != reused['initial_model_sha256']:
+            raise RuntimeError('reused initialization model hash mismatch')
+        initial_rng = cached['rng']
+        del cached
+    else:
+        print('ACCEPTANCE_STAGE building original PCA initialization', flush=True)
+        original = TS_FSAR(cfg, image)
+        initial_rng = rng_state(cuda=True)
     initial = cpu_state(original)
     initial_hash = model_hash(original)
-    initial_rng = rng_state(cuda=True)
     bank = out / 'initialization.pth'
     atomic_torch_save({'model': initial, 'rng': initial_rng}, bank)
     embeddings = build_embeddings(cfg.TRAIN.CLASS_NAME, cfg.TRAIN.LLM_train_json, text, tokenizer)
@@ -190,14 +210,18 @@ def run_acceptance(args, out):
         model.load_state_dict(initial, strict=True)
         model.to(device)
         optimizer = construct_optimizer(model, cfg)
-        scheduler = cosine_lr(optimizer, 0, 3)
+        base_lrs = [group['lr'] for group in optimizer.param_groups]
+        scheduler = cosine_lr(optimizer, 0, cfg.TRAIN.NUM_TRAIN_TASKS)
         restore_rng(initial_rng)
         result = train(loader(cfg, 'train'), loader(cfg, 'test', 'val'), model, embeddings,
                        val_embeddings, optimizer, scheduler, torch.cuda.amp.GradScaler(), cfg, device,
                        {'configuration_signature': configuration_signature(cfg), 'source_sha256': source_hash()})
         if result['successful_updates'] < 3:
             raise RuntimeError('32-episode default-AMP smoke had fewer than three effective updates')
+        trace = [json.loads(line) for line in (smoke_out / 'train_trace.jsonl').read_text().splitlines()]
+        schedule_check = verify_smoke_schedule(trace, base_lrs, cfg.TRAIN.NUM_TRAIN_TASKS)
         smokes.append({'mode': mode, 'minimum_required_successful_updates': 3,
+                       'schedule_check': schedule_check,
                        'initial_amp_scale': 65536., 'skipped_updates': 32 - result['successful_updates'], **result})
         del model, optimizer, scheduler
         gc.collect()
@@ -208,6 +232,7 @@ def run_acceptance(args, out):
               'initial_model_sha256': initial_hash, 'initialization_file': bank.name,
               'initialization_file_sha256': file_hash(bank), 'episode0_sha256': record['episode_sha256'],
               'comparisons': comparisons, 'smokes': smokes,
+              'initialization_reuse': reused,
               'amp_reference': reference,
               'amp_policy': 'Reference only: <=17 fixed-input backoff attempts from default scale. '
                             'Equivalent candidates use the same successful scale, one attempt. '

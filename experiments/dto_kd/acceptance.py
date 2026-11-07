@@ -1,7 +1,48 @@
 """Bounded AMP backoff for an acceptance probe, never a training policy."""
 import math
+import json
+from pathlib import Path
 
 import torch
+
+
+def load_certified_initialization(report_path, shot, seed, torch_version, gpu_name):
+    """Reuse only a passed report's hashed initial state, never its training.
+
+    Every equivalence and smoke check must still run under the current code.
+    This avoids recomputing PCA after an acceptance/runtime-only correction.
+    """
+    from .state import file_hash
+    path = Path(report_path).resolve()
+    report = json.loads(path.read_text())
+    expected = {'shot': shot, 'seed': seed, 'torch': torch_version, 'gpu': gpu_name}
+    if report.get('passed') is not True or any(report.get(k) != v for k, v in expected.items()):
+        raise RuntimeError('initialization report did not pass or has incompatible shot/seed/environment')
+    bank_path = (path.parent / report['initialization_file']).resolve()
+    bank_hash = file_hash(bank_path)
+    if bank_hash != report['initialization_file_sha256']:
+        raise RuntimeError('certified initialization file changed; refusing reuse')
+    bank = torch.load(bank_path, map_location='cpu')
+    if not {'model', 'rng'} <= bank.keys():
+        raise RuntimeError('incomplete certified initialization')
+    return bank, {'report': str(path), 'report_sha256': file_hash(path),
+                  'source_sha256': report['source_sha256'],
+                  'bank_sha256': bank_hash, 'initial_model_sha256': report['initial_model_sha256'],
+                  'scope': 'reuse hashed initial model/RNG only; rerun all current-code acceptance checks'}
+
+
+def verify_smoke_schedule(rows, base_lrs, steps):
+    """Check the actual logged no-warmup cosine against the smoke budget."""
+    if [row['step'] for row in rows] != list(range(1, steps + 1)):
+        raise RuntimeError('incomplete or repeated smoke training trace')
+    for row in rows:
+        rates = row['learning_rates']
+        factor = .5 * (1. + math.cos(math.pi * (row['step'] - 1) / steps))
+        if len(rates) != len(base_lrs) or any(
+                not math.isclose(actual, base * factor, rel_tol=1e-10, abs_tol=1e-12)
+                for actual, base in zip(rates, base_lrs)):
+            raise RuntimeError('smoke learning-rate schedule does not match its episode budget')
+    return {'verified': True, 'cosine_period_episodes': steps, 'trace_rows': len(rows)}
 
 
 def one_successful_update(model, initial, optimizer, scaler, forward, reset_rng,

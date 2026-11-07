@@ -94,6 +94,10 @@ tail -f "$ACCEPT_ROOT/shot1.console.log" "$ACCEPT_ROOT/shot5.console.log"
 
 报告绑定代码指纹、shot/seed、PyTorch、GPU 型号与完整初始化 SHA256。新的全部实验严格加载同一个经过验证的初始状态，避免每个任务重复 CPU PCA，恢复同一初始 Dropout 随机流。不会从历史训练 checkpoint 开始。
 
+2026-11-07 补充复验：`0ae241c` 的 32-step smoke 留用了早期 3-step cosine 周期，导致短验收 LR 周期回升；正式训练的周期始终使用 `NUM_TRAIN_TASKS=10000`，未受此问题影响。修复后 smoke 周期与自身预算一致，并核对每一步实际日志 LR。5-shot 旧日志中验证前曾出现 HAMI 分配失败后恢复完成；现于训练 backward 后释放已用完的输入与图引用，验证前释放空闲 CUDA 缓存，保留全部参数梯度及原先验证/更新顺序。需要在校园重新验收显存行为，不能因 CPU 测试通过声称已消除 OOM。
+
+只修改验收/内存管理、原初始化方法及科学配方未变时，可在新的验收命令中追加 `--reuse-initialization-report /旧通过目录/shot1/acceptance.json`（5-shot 对应自己的报告）。工具要求旧报告 passed=true、shot/seed/PyTorch/GPU 匹配且初始文件 SHA256 未变，严格加载并核对完整模型哈希；只复用初始模型和 RNG，省去 PCA，所有 loss/梯度/更新比较与 smoke 均重新运行。新报告记录旧来源、文件哈希和新代码指纹。不能用 `smoke_*/model_best.pth` 代替初始文件，也不能直接用旧报告启动修改后的正式训练。
+
 ## 4. 正式训练：两个验收通过后再执行
 
 先只启动 E0 两组也可，将 `--experiments E0,E1,E2` 改成 `--experiments E0`。默认队列是 v2，缺验收报告会拒绝启动；历史运行只能显式选择 `--protocol legacy`。
@@ -171,6 +175,6 @@ python scripts/compare_rigorous_results.py \
 
 ## 验证边界
 
-原服务器验证记录（2026-11-07，AMP 验收修复后）：44 项测试中 38 项 CPU 测试通过、6 项 CUDA 测试跳过；14 份源实验配置的基础配方审计通过。CPU 集成覆盖实际采样器的 worker 一致性、TS_DCM/GLAC 损失路径、控制器公式和完整状态恢复；新增 AMP 模拟测试覆盖固定 RNG 重放、跳步无参数/优化器变化、同 scale 一次有效更新及持续溢出拒绝。视觉编码器由合成特征替代、AMP backoff 在 CPU 由模拟 scaler 注入，不能作为真实完整模型或 CUDA AMP 验收。
+原服务器验证记录（2026-11-07，验收周期/验证显存修复后）：47 项测试中 41 项 CPU 测试通过、6 项 CUDA 测试跳过；14 份源实验配置的基础配方审计通过。CPU 集成覆盖实际采样器的 worker 一致性、TS_DCM/GLAC 损失路径、控制器公式和完整状态恢复；AMP 模拟测试覆盖固定 RNG 重放、跳步无参数/优化器变化、同 scale 一次有效更新及持续溢出拒绝；新增周期回升拒绝、已认证初始文件复用校验和验证前输入释放/梯度保留检查。视觉编码器由合成特征替代、AMP backoff 在 CPU 由模拟 scaler 注入，不能作为真实完整模型或 CUDA AMP 验收。校园已反馈早期 6 项轻量 CUDA 测试通过，两种 shot 在旧 3-step smoke 周期下的验收通过；修复后完整验收仍待校园复验。
 
 原服务器只执行 CPU 合成测试，真实模型 CUDA 验收需要校园执行并提供产物。v2 原始数据/网络/损失/官方基础配方保持不变，但 RNG 组织、选模协议和 E1 直接权重更新均与旧校园批次有差异；旧/新对照必须如实标注。即便所有工程验收通过，也不能保证准确率提升；有效的研究结果可能是不提升或负结果。

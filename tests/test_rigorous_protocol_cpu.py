@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 import subprocess
 import sys
+import weakref
 
 import numpy as np
 import torch
@@ -210,6 +211,35 @@ class RigorousTrainingTest(unittest.TestCase):
     def make_model(self, cfg):
         with mock.patch('trainers.ts_fsar.LSN', side_effect=lambda *args: TinyLSN()):
             return DTOTSFSAR(cfg, torch.nn.Identity())
+
+    def test_training_images_are_released_before_validation_with_gradients_preserved(self):
+        from experiments.dto_kd import rigorous
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+                BaseVideoDataset, '_read_video', read_fake_video):
+            cfg = configuration(Path(directory))
+            cfg.TRAIN.NUM_TRAIN_TASKS = cfg.TRAIN.VAL_FRE_ITER = 1
+            model = self.make_model(cfg)
+            optimizer = construct_optimizer(model, cfg)
+            embeddings = torch.nn.functional.normalize(torch.randn(3, 4), dim=1)
+            original_unpack, original_evaluate = rigorous.unpack, rigorous.evaluate
+            images = []
+
+            def unpack(*args):
+                values = original_unpack(*args)
+                images.append(weakref.ref(values[0]))
+                return values
+
+            def evaluate(*args):
+                self.assertTrue(all(value() is None for value in images))
+                self.assertTrue(any(p.grad is not None for p in model.parameters()))
+                return original_evaluate(*args)
+
+            with mock.patch.object(rigorous, 'unpack', side_effect=unpack), mock.patch.object(
+                    rigorous, 'evaluate', side_effect=evaluate):
+                train(loader(cfg, 'train'), loader(cfg, 'test'), model, embeddings, embeddings,
+                      optimizer, cosine_lr(optimizer, 0, 1), torch.cuda.amp.GradScaler(enabled=False),
+                      cfg, torch.device('cpu'), {'configuration_signature': 'release-inputs',
+                                                 'source_sha256': 'release-inputs'})
 
     def test_uninterrupted_and_full_state_resume_are_exactly_equal(self):
         for workers in (0, 2):

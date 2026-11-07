@@ -7,12 +7,14 @@ shot=''
 gpu=''
 seed=0
 out=''
+reuse_report=''
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --shot) shot="$2"; shift 2 ;;
     --gpu) gpu="$2"; shift 2 ;;
     --seed) seed="$2"; shift 2 ;;
     --output) out="$2"; shift 2 ;;
+    --reuse-initialization-report) reuse_report="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -37,4 +39,6 @@ exec 9>"${out}.lock"
 flock -n 9 || { echo 'another acceptance uses this output' >&2; exit 1; }
 exec > >(tee -a "${out}.console.log") 2>&1
 echo "[$(date -Is)] CUDA acceptance only: shot=$shot seed=$seed GPU=$gpu output=$out"
-exec python -u scripts/campus_acceptance.py --shot "$shot" --seed "$seed" --gpu "$gpu" --output-dir "$out"
+args=(--shot "$shot" --seed "$seed" --gpu "$gpu" --output-dir "$out")
+if [[ -n "$reuse_report" ]]; then args+=(--reuse-initialization-report "$reuse_report"); fi
+exec python -u scripts/campus_acceptance.py "${args[@]}"

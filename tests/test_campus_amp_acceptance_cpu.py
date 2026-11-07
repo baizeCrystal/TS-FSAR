@@ -4,11 +4,17 @@ The optimizer, autograd, gradients, dropout and parameter updates are real.
 The simulated scaler cannot establish CUDA numerical equivalence.
 """
 import copy
+import json
+import math
+from pathlib import Path
+import tempfile
 import unittest
 
 import torch
 
-from experiments.dto_kd.acceptance import one_successful_update
+from experiments.dto_kd.acceptance import (one_successful_update, load_certified_initialization,
+                                           verify_smoke_schedule)
+from experiments.dto_kd.state import file_hash, model_hash, rng_state
 
 
 class SimulatedScaler:
@@ -42,6 +48,41 @@ class SimulatedScaler:
 
 
 class CampusAmpAcceptanceTest(unittest.TestCase):
+    def test_smoke_trace_rejects_a_three_episode_cosine_repeated_over_thirty_two(self):
+        rows = [{'step': step, 'learning_rates': [.0003 * .5 * (1 + math.cos(math.pi * (step - 1) / 32))]}
+                for step in range(1, 33)]
+        self.assertTrue(verify_smoke_schedule(rows, [.0003], 32)['verified'])
+        wrong = [{'step': step, 'learning_rates': [.0003 * .5 * (1 + math.cos(math.pi * (step - 1) / 3))]}
+                 for step in range(1, 33)]
+        with self.assertRaisesRegex(RuntimeError, 'schedule does not match'):
+            verify_smoke_schedule(wrong, [.0003], 32)
+
+    def test_reuse_requires_passed_compatible_report_and_unchanged_bank(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = torch.nn.Linear(2, 2)
+            bank = root / 'initialization.pth'
+            torch.save({'model': model.state_dict(), 'rng': rng_state()}, bank)
+            report = {'passed': True, 'shot': 1, 'seed': 0, 'torch': torch.__version__, 'gpu': 'test GPU',
+                      'source_sha256': 'previous-code', 'initial_model_sha256': model_hash(model),
+                      'initialization_file': bank.name, 'initialization_file_sha256': file_hash(bank)}
+            path = root / 'acceptance.json'
+            path.write_text(json.dumps(report))
+            loaded, provenance = load_certified_initialization(path, 1, 0, torch.__version__, 'test GPU')
+            self.assertEqual(provenance['initial_model_sha256'], model_hash(model))
+            for name, value in model.state_dict().items():
+                torch.testing.assert_close(value, loaded['model'][name], rtol=0, atol=0)
+            with self.assertRaisesRegex(RuntimeError, 'incompatible'):
+                load_certified_initialization(path, 5, 0, torch.__version__, 'test GPU')
+            path.write_text(json.dumps({**report, 'passed': False}))
+            with self.assertRaisesRegex(RuntimeError, 'did not pass'):
+                load_certified_initialization(path, 1, 0, torch.__version__, 'test GPU')
+            path.write_text(json.dumps(report))
+            with bank.open('ab') as stream:
+                stream.write(b'changed')
+            with self.assertRaisesRegex(RuntimeError, 'file changed'):
+                load_certified_initialization(path, 1, 0, torch.__version__, 'test GPU')
+
     def make_probe(self, finite_at=2., scale=8.):
         model = torch.nn.Sequential(torch.nn.Linear(3, 2), torch.nn.Dropout(.4))
         initial = copy.deepcopy(model.state_dict())

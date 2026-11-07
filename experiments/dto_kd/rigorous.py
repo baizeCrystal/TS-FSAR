@@ -137,8 +137,15 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
             diagnostic_seconds = 0.
         scaler.scale(loss).backward()
         model.clear_dto_cache()
+        matching_accuracy = float(result['acc'])
+        # No later operation needs this training input or its completed graph.
+        # Keep optimizer gradients for the released validation-before-step order.
+        del batch, images, support, query, real, tensors, result, loss
         # Match the released validation-before-step timing for ALL methods.
         if step % cfg.TRAIN.VAL_FRE_ITER == 0:
+            if cuda:
+                # Release unused allocator blocks before FP32 validation on A10.
+                torch.cuda.empty_cache()
             validation = evaluate(val_data, model, val_embeddings, cfg, 'val', step, device)
             validation['successful_updates_before_validation'] = successful_updates
             append_json(out / 'validation.jsonl', validation)
@@ -168,7 +175,7 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
             del model.dto_controller.history[history_length:]
         optimizer.zero_grad(set_to_none=True)
         scheduler(iteration)
-        row = {'step': step, 'losses': components, 'matching_accuracy': float(result['acc']),
+        row = {'step': step, 'losses': components, 'matching_accuracy': matching_accuracy,
                'task_coefficient': tw, 'distill_coefficient': dw, 'amp_scale': scaler.get_scale(),
                'effective_update': effective_update, 'successful_updates': successful_updates,
                'learning_rates': [g['lr'] for g in optimizer.param_groups],
@@ -188,7 +195,6 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
         append_json(out / 'train_trace.jsonl', row)
         if step % cfg.LOG_PERIOD == 0 or step == cfg.TRAIN.NUM_TRAIN_TASKS:
             print('TRAIN', json.dumps(row), flush=True)
-        del batch, images, support, query, real, tensors, result, loss
         if step % cfg.TRAIN.VAL_FRE_ITER == 0 or step == cfg.TRAIN.NUM_TRAIN_TASKS:
             checkpoint(step)
     completed = cfg.TRAIN.NUM_TRAIN_TASKS
