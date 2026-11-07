@@ -150,6 +150,29 @@ class DTOControllerCudaTest(unittest.TestCase):
             for got, want in zip(run(mode), reference):
                 torch.testing.assert_close(got, want, rtol=1e-5, atol=1e-6)
 
+    def test_reference_loss_paths_under_cuda_amp_keep_teacher_ce_and_finite_solver(self):
+        from tests.test_dto_kd_adaptation_cpu import AdaptationGradientTest
+        for shot in (1, 5):
+            for variant in ('E1_exact', 'E1_amortized'):
+                cfg, model, inputs = AdaptationGradientTest().fixture(variant, shot)
+                model.cuda()
+                inputs = tuple(value.cuda() for value in inputs)
+                with activation_context('all'), torch.cuda.amp.autocast():
+                    output = model(*inputs)
+                _, kl, _, ce, _ = model._components(inputs[2])
+                params = list(model.model.Adapter.parameters())
+                self.assertTrue(all(g is None for g in torch.autograd.grad(
+                    kl, params, retain_graph=True, allow_unused=True)))
+                ce_grad = torch.autograd.grad(ce, params, retain_graph=True)
+                total = torch.autograd.grad(output['loss'], params, retain_graph=True)
+                for a, b in zip(total, ce_grad):
+                    torch.testing.assert_close(a, cfg.TRAIN.KD_ALPHA * b, rtol=1e-3, atol=1e-5)
+                if variant == 'E1_exact':
+                    self.assertTrue(model.dto_last_metrics['pair_kkt_verified'])
+                output['loss'].backward()
+                self.assertTrue(all(p.grad is None or bool(torch.isfinite(p.grad).all())
+                                    for p in model.parameters()))
+
 
 if __name__ == "__main__":
     unittest.main()

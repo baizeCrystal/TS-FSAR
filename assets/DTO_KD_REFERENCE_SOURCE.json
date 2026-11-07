@@ -1,0 +1,16 @@
+{
+  "title": "DTO-KD: Dynamic Trade-off Optimization for Effective Knowledge Distillation",
+  "venue": "ICLR 2026",
+  "url": "https://proceedings.iclr.cc/paper_files/paper/2026/file/e546ce4230c15bc422a500bb47b341ea-Paper-Conference.pdf",
+  "openreview": "https://openreview.net/forum?id=QMItTyQW92",
+  "pdf_sha256": "d606560b33482052ac49a6d86f6addc5bbaa46d3e1d8bd6f8a3bf3e0b15cffee",
+  "pdf_bytes": 3731818,
+  "equations": {
+    "log_gradients": "Eq.8",
+    "simplex_problem": "Eq.9",
+    "closed_form": "Eq.11-15 with constrained simplex boundaries",
+    "amortized": "Eq.18 direct pi step followed by softmax"
+  },
+  "author_code_status": "No matching official DTO-KD repository located in the project audit or GitHub repository search on 2026-11-07; not an author-code reproduction.",
+  "reference_numerics": "Positive numerical log floor 1e-8; FP32 loss transforms, CPU FP64 Gram reductions; no log1p or arbitrary KL cap."
+}

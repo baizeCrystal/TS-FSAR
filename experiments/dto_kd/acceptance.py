@@ -8,6 +8,8 @@ import torch
 
 def require_adaptation_certificate(report, mode, detach_teacher):
     """A legacy E0/E1 certificate cannot admit a new gradient/objective path."""
+    if mode in ('paper_exact', 'paper_amortized') and not detach_teacher:
+        raise RuntimeError('DTO reference requires a stopped KL target, with teacher CE retained')
     if not detach_teacher and mode != 'safe_dynamic':
         return
     matches = [s for s in report.get('smokes', [])
@@ -17,6 +19,11 @@ def require_adaptation_certificate(report, mode, detach_teacher):
                and s.get('successful_updates', 0) >= 3]
     if not matches:
         raise RuntimeError('new adaptation requires current-code --adaptation-checks CUDA acceptance')
+    if mode in ('paper_exact', 'paper_amortized') and not any(
+            s['adaptation_check'].get('original_auxiliary_ce_coefficients') is True
+            and (mode != 'paper_exact' or s['adaptation_check'].get('shared_lsn_pair_kkt_every_episode') is True)
+            for s in matches):
+        raise RuntimeError('DTO reference requires --dto-reference-checks CUDA acceptance')
 
 
 def load_certified_initialization(report_path, shot, seed, torch_version, gpu_name):

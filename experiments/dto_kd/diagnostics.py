@@ -6,7 +6,7 @@ from .gradient_utils import loss_gradients
 
 
 def coefficients(model, cfg, task, distill):
-    if model.dto_mode == 'safe_dynamic':
+    if model.dto_mode in ('safe_dynamic', 'paper_exact', 'paper_amortized'):
         return model.dto_last_metrics['task_coefficient'], model.dto_last_metrics['distill_coefficient']
     if model.dto_mode == 'dynamic':
         # These are the weights used by this forward, before the next update.
@@ -62,6 +62,11 @@ def diagnose(model, cfg, target_labels):
         all_auxiliary = gradient_metrics(effective_auxiliary + effective_distill, effective_task)
         distill_vs_auxiliary = gradient_metrics(effective_distill, effective_auxiliary)
         distill_vs_supervised = gradient_metrics(effective_distill, effective_task + effective_auxiliary)
+        total = effective_distill + effective_task + effective_auxiliary
+        pair = effective_distill + effective_task
+        def alignment(vector):
+            return {'dot_raw_kl': float(torch.dot(vector, selected['distill'].double())),
+                    'dot_raw_dcm': float(torch.dot(vector, selected['task'].double()))}
         rows.append({'parameter_group': group, 'finite': True, 'task_coefficient': task_weight,
                      'distill_coefficient': distill_weight,
                      'auxiliary_coefficient': auxiliary_weight,
@@ -72,5 +77,8 @@ def diagnose(model, cfg, target_labels):
                      **{'all_auxiliary_' + k: v for k, v in all_auxiliary.items()},
                      **{'distill_vs_auxiliary_' + k: v for k, v in distill_vs_auxiliary.items()},
                      **{'distill_vs_supervised_' + k: v for k, v in distill_vs_supervised.items()},
+                     'pair_gradient_alignment': alignment(pair),
+                     'total_gradient_alignment': alignment(total),
+                     'alignment_sign': 'negative dot means -gradient is locally ascent for that raw objective; before AdamW',
                      'both_objective_gradients_nonzero': raw['task_norm'] > 0 and raw['distill_norm'] > 0})
     return rows

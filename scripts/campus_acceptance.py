@@ -31,6 +31,8 @@ def main():
                         help='reuse only model/RNG initialization from a passed hashed report; rerun all checks')
     parser.add_argument('--adaptation-checks', action='store_true',
                         help='also certify E0_detach, E1_detach and E1_safe with common initialization')
+    parser.add_argument('--dto-reference-checks', action='store_true',
+                        help='certify original-log Eq18 and shared-LSN closed-form DTO paths')
     parser.add_argument('--selection-protocol', choices=('meta-val-fixed', 'official-test'), default='meta-val-fixed')
     args = parser.parse_args()
     if args.output_dir.exists():
@@ -194,11 +196,18 @@ def run_acceptance(args, out):
     del inputs, batch, reference_gradients, reference_parameters
     smokes = []
     variants = [('off', False, 'off'), ('dynamic', False, 'dynamic')]
+    if args.dto_reference_checks and not args.adaptation_checks:
+        variants = [('off', False, 'off')]
     if args.adaptation_checks:
         variants += [('off', True, 'E0_detach'), ('dynamic', True, 'E1_detach'),
                      ('safe_dynamic', True, 'E1_safe')]
         if args.selection_protocol == 'official-test':
             variants += [('scale_matched', True, 'E3_detach')]
+    if args.dto_reference_checks:
+        if not args.adaptation_checks:
+            variants += [('off', True, 'E0_detach')]
+        variants += [('paper_amortized', True, 'E1_amortized'),
+                     ('paper_exact', True, 'E1_exact')]
     for mode, detach_teacher, variant in variants:
         print('ACCEPTANCE_STAGE default-AMP smoke:', variant, flush=True)
         smoke_out = out / ('smoke_' + variant)
@@ -248,6 +257,15 @@ def run_acceptance(args, out):
             adaptation_check = {'passed': True, 'teacher_kl_gradient_zero': True,
                                 'teacher_ce_gradient_nonzero': True,
                                 'bounded_kl_coefficient_checked': mode == 'safe_dynamic'}
+            if mode in ('paper_exact', 'paper_amortized'):
+                if not all(row['dto']['auxiliary_coefficient'] == 1. for row in trace):
+                    raise RuntimeError('DTO reference changed auxiliary CE strength')
+                adaptation_check['original_auxiliary_ce_coefficients'] = True
+            if mode == 'paper_exact':
+                if not all(row['dto'].get('pair_kkt_verified')
+                           and row['dto']['solver_numel'] > 0 for row in trace):
+                    raise RuntimeError('exact DTO solver did not certify every smoke episode')
+                adaptation_check['shared_lsn_pair_kkt_every_episode'] = True
         smokes.append({'mode': mode, 'variant': variant, 'detach_teacher': detach_teacher,
                        'adaptation_check': adaptation_check,
                        'minimum_required_successful_updates': 3,

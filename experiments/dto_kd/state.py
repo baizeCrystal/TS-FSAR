@@ -30,6 +30,7 @@ def source_hash():
                                       'scripts/check_ssv2_files.py', 'scripts/launch_campus_suite.py',
                                       'scripts/calibrate_rigorous_scale.py',
                                       'scripts/restart_campus_official_test.py',
+                                      'scripts/run_campus_dto_reference.py',
                                       'scripts/run_campus_official_e3.py')]
     return hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)), file_hash(p))
                                      for p in files], sort_keys=True).encode()).hexdigest()

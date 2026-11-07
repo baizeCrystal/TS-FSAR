@@ -23,11 +23,14 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def build_jobs(shots, seed, output_root, skip, protocol='legacy', include_adaptations=False):
+def build_jobs(shots, seed, output_root, skip, protocol='legacy', include_adaptations=False,
+               include_references=False):
     jobs = []
     variants = [("E0", None), ("E1", None), ("E2", "0.05"), ("E2", "0.1"), ("E2", "0.2")]
     if include_adaptations:
         variants += [('E0_detach', None), ('E1_detach', None), ('E1_safe', None)]
+    if include_references:
+        variants += [('E1_exact', None), ('E1_amortized', None)]
     for experiment, alpha in variants:
         for shot in shots:
             if protocol == 'v2' and experiment == 'E2':
@@ -173,16 +176,17 @@ def main():
         p.error("cpu-threads must be positive; launch-delay must be nonnegative")
     out = Path(a.output_root).resolve()
     experiments = set(a.experiments.split(','))
-    if not experiments or not experiments <= {'E0', 'E1', 'E2', 'E0_detach', 'E1_detach', 'E1_safe'}:
+    if not experiments or not experiments <= {'E0', 'E1', 'E2', 'E0_detach', 'E1_detach', 'E1_safe', 'E1_exact', 'E1_amortized'}:
         p.error('unknown --experiments selection')
     include_adaptations = bool(experiments & {'E0_detach', 'E1_detach', 'E1_safe'})
-    if include_adaptations and a.protocol != 'v2':
+    include_references = bool(experiments & {'E1_exact', 'E1_amortized'})
+    if (include_adaptations or include_references) and a.protocol != 'v2':
         p.error('new FSAR adaptations require --protocol v2')
-    all_jobs = build_jobs(shots, a.seed, out, set(), a.protocol, include_adaptations)
+    all_jobs = build_jobs(shots, a.seed, out, set(), a.protocol, include_adaptations, include_references)
     skip = set(filter(None, a.skip.split(",")))
     if not skip <= {j["name"] for j in all_jobs}:
         p.error("unknown skipped job: " + ", ".join(sorted(skip - {j["name"] for j in all_jobs})))
-    jobs = build_jobs(shots, a.seed, out, skip, a.protocol, include_adaptations)
+    jobs = build_jobs(shots, a.seed, out, skip, a.protocol, include_adaptations, include_references)
     jobs = [job for job in jobs if job['experiment'] in experiments]
     for job in jobs:
         job["activation_offload"] = a.activation_offload

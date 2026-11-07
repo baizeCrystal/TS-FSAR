@@ -104,10 +104,15 @@ def compare_config(path, generated=False):
     return {'config': str(path.resolve()), 'shot': shot, 'dto_mode': dto.get('MODE', 'off'),
             'detach_teacher': bool(dto.get('DETACH_TEACHER', False)),
             'objective_scope': 'shifted full-supervised and base-weighted KL' if dto.get('MODE') == 'safe_dynamic'
+                               else 'original log KL/DCM; unchanged auxiliary CE; shared-LSN exact solve'
+                               if dto.get('MODE') == 'paper_exact'
+                               else 'original log KL/DCM; unchanged auxiliary CE; direct Eq18 approximation'
+                               if dto.get('MODE') == 'paper_amortized'
                                else 'original scalar objective or declared DTO control',
             'protocol_version': cfg.get('RIGOROUS', {}).get('VERSION', 'legacy'),
             'selection_protocol': cfg.get('RIGOROUS', {}).get('SELECTION_PROTOCOL', 'meta-val-fixed'),
-            'controller_update': dto.get('UPDATE_RULE', 'legacy_logits'),
+            'controller_update': 'paper-closed-form-simplex' if dto.get('MODE') == 'paper_exact'
+                                 else dto.get('UPDATE_RULE', 'legacy_logits'),
             'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'released_recipe_differences': differences, 'checks': checks,
             'configuration_checks_pass': not differences and all(checks.values()),

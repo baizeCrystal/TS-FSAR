@@ -9,6 +9,7 @@ seed=0
 out=''
 reuse_report=''
 adaptation_checks=false
+dto_reference_checks=false
 selection_protocol=meta-val-fixed
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,6 +19,7 @@ while [[ $# -gt 0 ]]; do
     --output) out="$2"; shift 2 ;;
     --reuse-initialization-report) reuse_report="$2"; shift 2 ;;
     --adaptation-checks) adaptation_checks=true; shift ;;
+    --dto-reference-checks) dto_reference_checks=true; shift ;;
     --selection-protocol) selection_protocol="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -47,4 +49,5 @@ args=(--shot "$shot" --seed "$seed" --gpu "$gpu" --output-dir "$out")
 args+=(--selection-protocol "$selection_protocol")
 if [[ -n "$reuse_report" ]]; then args+=(--reuse-initialization-report "$reuse_report"); fi
 if [[ "$adaptation_checks" == true ]]; then args+=(--adaptation-checks); fi
+if [[ "$dto_reference_checks" == true ]]; then args+=(--dto-reference-checks); fi
 exec python -u scripts/campus_acceptance.py "${args[@]}"

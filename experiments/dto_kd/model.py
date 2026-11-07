@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from trainers.ts_fsar import TS_FSAR
 
 from .controller import DTOController
+from .exact import log_loss, shared_lsn_weights
 
 
 class DTOTSFSAR(TS_FSAR):
@@ -27,15 +28,17 @@ class DTOTSFSAR(TS_FSAR):
         dto = getattr(cfg, "DTO_KD", None)
         self.dto_mode = getattr(dto, "MODE", "off") if dto is not None else "off"
         self.dto_detach_teacher = bool(getattr(dto, 'DETACH_TEACHER', False))
-        if self.dto_mode == 'safe_dynamic' and not self.dto_detach_teacher:
-            raise ValueError('safe_dynamic requires DETACH_TEACHER=true')
+        if self.dto_mode in ('safe_dynamic', 'paper_exact', 'paper_amortized') and not self.dto_detach_teacher:
+            raise ValueError(self.dto_mode + ' requires DETACH_TEACHER=true')
         self.dto_controller = DTOController(
             eta=float(getattr(dto, "ETA", 0.01)),
             init_distill=float(getattr(dto, "INIT_DISTILL_WEIGHT", 0.5)),
             eps=float(getattr(dto, "EPS", 1e-8)),
             logit_clip=float(getattr(dto, "LOGIT_CLIP", 20.0)),
             update_rule=str(getattr(dto, "UPDATE_RULE", "legacy_logits")),
-        ) if self.dto_mode in ("dynamic", "safe_dynamic") else None
+        ) if self.dto_mode in ("dynamic", "safe_dynamic", "paper_amortized") else None
+        if self.dto_mode == 'paper_amortized' and self.dto_controller.update_rule != 'paper_pi_softmax':
+            raise ValueError('paper_amortized requires the direct paper_pi_softmax update')
         self.dto_static_kl_alpha = float(getattr(dto, "STATIC_KL_ALPHA", cfg.TRAIN.KD_ALPHA)) if dto is not None else float(cfg.TRAIN.KD_ALPHA)
         self.dto_trace_interval = int(getattr(dto, "TRACE_INTERVAL", 100)) if dto is not None else 0
         self.dto_step = 0
@@ -142,6 +145,29 @@ class DTOTSFSAR(TS_FSAR):
                                        if float(distill.detach()) >= 0. else 0.,
                 'distill_coefficient_upper_bound': base_kd,
                 'dto_objective': state.objective,
+            }
+        elif self.dto_mode in ('paper_exact', 'paper_amortized'):
+            # Preserve the declared KL/DCM objectives and ALL auxiliary CE at
+            # their original strengths. No log1p, regrouping or KL alpha cap.
+            eps = float(self.cfg.DTO_KD.EPS)
+            log_d, log_t = log_loss(distill, eps), log_loss(task, eps)
+            if self.dto_mode == 'paper_exact':
+                solver = shared_lsn_weights(self, distill, task, eps)
+                p_dist, p_task = solver['pi_distill'], solver['pi_task']
+            else:
+                solver = {'solver': 'paper-Eq18-amortized', 'solver_seconds': 0.}
+                p_dist, p_task = self.dto_controller.weights
+                state = self.dto_controller.update_from_logs(log_d, log_t)
+                solver.update(next_pi_distill=state.pi_distill, next_pi_task=state.pi_task)
+            coordinated = p_dist * log_d + p_task * log_t
+            d, t = float(distill.detach()), float(task.detach())
+            self.dto_last_metrics = {
+                **solver, 'pi_distill': p_dist, 'pi_task': p_task,
+                'task_loss': t, 'distill_loss': d,
+                'task_coefficient': p_task / t if t >= eps else 0.,
+                'distill_coefficient': p_dist / d if d >= eps else 0.,
+                'auxiliary_coefficient': 1., 'log_loss_floor': eps,
+                'distill_log_floor_active': d < eps, 'task_log_floor_active': t < eps,
             }
         elif self.dto_mode == "dynamic":
             coordinated = self.dto_controller.weighted_log_objective(distill, task)

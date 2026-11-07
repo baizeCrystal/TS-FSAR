@@ -120,7 +120,10 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
             torch.cuda.reset_peak_memory_stats(device)
         controller_before = model.dto_state_dict()
         history_length = len(model.dto_controller.history) if model.dto_controller else 0
-        with activation_context(cfg.DTO_KD.ACTIVATION_OFFLOAD, sampled), torch.autocast(
+        # The exact paper solver performs two extra backwards every episode.
+        # It needs the same saved-tensor offload as diagnostic episodes on A10.
+        with activation_context(cfg.DTO_KD.ACTIVATION_OFFLOAD,
+                                sampled or model.dto_mode == 'paper_exact'), torch.autocast(
                 device_type=device.type, enabled=cuda):
             result = model(images, support, query, real, embeddings)
             loss = result['loss']
@@ -293,7 +296,8 @@ def main():
                 'optimizer_defaults': optimizer.defaults,
                 'trainable_parameters': sum(p.numel() for p in model.parameters() if p.requires_grad),
                 'clip_manifest': json.loads((ROOT / 'assets/CLIP_VIT_B16_SHA256SUMS.json').read_text()),
-                'controller_update': cfg.DTO_KD.UPDATE_RULE,
+                'controller_update': 'paper-closed-form-simplex' if model.dto_mode == 'paper_exact'
+                                     else cfg.DTO_KD.UPDATE_RULE,
                 'selection_split': 'Novel-Test' if official_stream(cfg) else 'Meta-Val',
                 'selection_protocol': getattr(cfg.RIGOROUS, 'SELECTION_PROTOCOL', 'meta-val-fixed'),
                 'rng_policy': 'official-worker-stream' if official_stream(cfg) else 'fixed-per-episode',
