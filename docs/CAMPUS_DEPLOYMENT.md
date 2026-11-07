@@ -124,7 +124,7 @@ E1 的 `model_best.pth` 是安全保存的模型权重；从最近 best 继续�
 
 先 `git pull --ff-only origin research/dto-kd-fsar-gradient-coordination`。
 本次修复 E1/E2/E3 support/query 标签留在 CPU 导致的 `index_select`
-设备冲突。`tests/test_campus_execution_cpu.py` 用 CPU 搬运探针执行一个合成
+设备冲突。`tests/test_campus_execution_cpu.py` 用 CPU 搬运探针执行三个合成
 优化步骤，检查标签和图像经过相同 CUDA 搬运路径；这不是实际 CUDA 验证。
 
 `the N th side layer is initialized...` 来自逐层 CPU PCA 初始化，不代表
@@ -139,8 +139,9 @@ E1 的 `model_best.pth` 是安全保存的模型权重；从最近 best 继续�
 本地 `/tmp` 仍须有可用空间；如另有本地临时盘，设置
 `TSFSAR_RUNTIME_TMPDIR=/path/to/local/temp`。不要指向 NFS。
 
-先在已分配的 GPU 上执行短检查（每次 2 个训练/2 个验证 episode，梯度
-诊断每步一次；仅用于查错和显存检查，不是正式研究结果）：
+先在已分配的 GPU 上执行短检查（每次 3 个训练/2 个验证 episode，
+第 2 步诊断；覆盖普通步、诊断步、Adam 状态建立后的普通步。仅用于查错
+和显存检查，不是正式研究结果）：
 
 ```bash
 python -m unittest tests.test_dto_kd_cpu tests.test_campus_execution_cpu -v
@@ -208,5 +209,38 @@ Meta-Val 选择候选，队列不读取或比较最终 Test 准确率。
 读取的 checkpoint。这个修复不改变权重更新公式或优化目标。
 
 原服务器仅执行 CPU 测试；`tests.test_dto_kd_cuda` 默认跳过，仅在校园
-已分配 GPU 上设置 `TSFSAR_RUN_CUDA_TESTS=1` 后执行。请先确认这三个
+已分配 GPU 上设置 `TSFSAR_RUN_CUDA_TESTS=1` 后执行。请先确认这些
 小张量 CUDA 测试全部通过，再运行较慢的模型短检查。
+
+
+### A10 诊断显存峰值与 CPU 暂存
+
+降低 `GRADIENT_SAMPLE_INTERVAL` 的采样频率不会降低采样时的显存峰值。
+`loss_gradients` 现在将每个目标的诊断梯度立即转到 CPU，释放 GPU 上
+该目标的梯度后才计算下一个目标，不改参数 `.grad`。方向、范数和投影
+统计在 CPU 完成。诊断复用训练时已计算的任务 CE，不另建一份 CE 图；
+正常 backward 后清除 episode 缓存引用，下一步不保留上一步输入。
+
+默认 `--activation-offload diagnostics` 在采样 episode 中启用
+`torch.autograd.graph.save_on_cpu(pin_memory=False)`：将反向保存的张量
+暂存 CPU，反向时恢复到原设备。没有重新执行 forward，没有更换损失、
+帧数、Query 数、episode 或优化器；代价是采样时增加 CPU 主存占用和
+CPU/GPU 传输。完整模型的实际 GPU/CPU 峰值仍须校园端短检查测量。
+
+如果短检查的第 1 或第 3 个普通训练步仍 OOM，可统一改成所有 episode
+暂存 CPU。E0 仍保留原模型和训练循环，仅改变保存张量的存储位置：
+
+```bash
+bash scripts/run_campus_experiment.sh --experiment E1 --shot 5 --gpu 0 \
+  --smoke --activation-offload all --output runs/campus/smoke/all_offload/E1_5shot
+# 确认主存余量和两种 shot 的短检查均通过后，再启动多卡队列。
+# 所有组统一使用同一策略，避免把其速度变化误归为算法开销。
+python scripts/launch_campus_suite.py --gpus 0,1,2,3,4,5,6,7 \
+  --activation-offload all --output-root runs/campus/parallel_all_offload --dry-run
+```
+
+`all` 会增加每个任务的 CPU 主存和 PCIe 传输开销。启动八个任务前检查
+`free -h`，以及容器的 `/sys/fs/cgroup/memory.max`（cgroup v2）或
+`/sys/fs/cgroup/memory/memory.limit_in_bytes`（v1）。不能仅根据宿主机
+总内存决定并发数；主存不足时减少同时运行的任务，而非更改实验 episode。
+`--activation-offload off` 用于明确关闭暂存的对照诊断，不是 A10 推荐设置。

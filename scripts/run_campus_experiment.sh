@@ -12,6 +12,7 @@ out=''
 checkpoint=''
 config=''
 smoke=false
+activation_offload="${TSFSAR_ACTIVATION_OFFLOAD:-diagnostics}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --experiment) experiment="$2"; shift 2 ;;
@@ -23,12 +24,14 @@ while [[ $# -gt 0 ]]; do
     --checkpoint) checkpoint="$2"; shift 2 ;;
     --config) config="$2"; shift 2 ;;
     --smoke) smoke=true; shift ;;
+    --activation-offload) activation_offload="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 case "$experiment" in E0|E1|E2|E3) ;; *) echo 'experiment must be E0/E1/E2/E3' >&2; exit 2 ;; esac
 case "$shot" in 1|5) ;; *) echo 'shot must be 1 or 5' >&2; exit 2 ;; esac
 case "$mode" in train|eval) ;; *) echo 'mode must be train or eval' >&2; exit 2 ;; esac
+case "$activation_offload" in off|diagnostics|all) ;; *) echo 'activation-offload must be off/diagnostics/all' >&2; exit 2 ;; esac
 [[ "$gpu" =~ ^[0-9]+$ ]] || { echo '--gpu must name one allocated GPU index' >&2; exit 2; }
 if [[ "$experiment" == E2 && -z "$config" ]]; then
   echo '--config is required for E2 (choose 0.05, 0.1, or 0.2)' >&2
@@ -79,18 +82,15 @@ exec > >(tee -a "$console") 2>&1
 echo "[$(date -Is)] START experiment=$experiment shot=$shot gpu=$gpu seed=$seed mode=$mode pid=$$"
 echo "python=$(command -v python) CPU_THREADS=$threads runtime_TMPDIR=$TMPDIR"
 echo "config=$cfg output=$out console=$console"
+echo "activation_offload=$activation_offload (CPU RAM required when enabled)"
 echo 'LSN training initialization performs CPU PCA before GPU episode processing.'
 
-args=(--config "$cfg" --output "$tmp" --seed "$seed" --output-dir "$out" --mode "$mode")
+args=(--config "$cfg" --output "$tmp" --seed "$seed" --output-dir "$out" --mode "$mode" --activation-offload "$activation_offload")
 if [[ "$smoke" == true ]]; then
-  echo 'SMOKE CHECK ONLY: 2 train episodes, 2 validation episodes, gradients every step.'
+  echo 'SMOKE CHECK ONLY: 3 train episodes, 2 validation episodes, diagnostic on step 2.'
   args+=(--smoke)
 fi
 if [[ "$mode" == eval ]]; then args+=(--checkpoint "$checkpoint"); fi
 python -u scripts/prepare_run_config.py "${args[@]}"
 export CUDA_VISIBLE_DEVICES="$gpu"
-if [[ "$experiment" == E0 ]]; then
-  exec python -u main.py --cfg "$tmp"
-else
-  exec python -u -m experiments.dto_kd.entry --cfg "$tmp"
-fi
+exec python -u -m experiments.dto_kd.entry --cfg "$tmp"

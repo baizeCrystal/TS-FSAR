@@ -71,7 +71,8 @@ def main():
     p.add_argument('--output-dir')
     p.add_argument('--mode', choices=('train', 'eval'), default='train')
     p.add_argument('--checkpoint')
-    p.add_argument('--smoke', action='store_true', help='two train/validation episodes; not formal results')
+    p.add_argument('--activation-offload', choices=('off', 'diagnostics', 'all'), default='diagnostics')
+    p.add_argument('--smoke', action='store_true', help='three train/two validation episodes; not formal results')
     a = p.parse_args()
     c = yaml.safe_load(Path(a.config).read_text())
     if a.seed is not None:
@@ -82,9 +83,10 @@ def main():
     if a.smoke:
         if a.mode != 'train' or not a.output_dir or 'smoke' not in Path(a.output_dir).parts:
             raise SystemExit('--smoke requires train mode and an output directory inside smoke/')
-        c['TRAIN'].update(NUM_TRAIN_TASKS=2, NUM_TEST_TASKS=2, VAL_FRE_ITER=2, EVAL_START_EPISODE=1)
+        c['TRAIN'].update(NUM_TRAIN_TASKS=3, NUM_TEST_TASKS=2, VAL_FRE_ITER=3, EVAL_START_EPISODE=1)
         c['LOG_PERIOD'] = 1
-        c.setdefault('DTO_KD', {})['GRADIENT_SAMPLE_INTERVAL'] = 1
+        c.setdefault('DTO_KD', {})['GRADIENT_SAMPLE_INTERVAL'] = 2
+    c.setdefault('DTO_KD', {})['ACTIVATION_OFFLOAD'] = a.activation_offload
     c['TRAIN']['ENABLE'] = a.mode == 'train'
     c['TEST']['ENABLE'] = a.mode == 'eval'
     if a.mode == 'eval':

@@ -47,7 +47,8 @@ def job_command(job, gpu):
     return ["bash", str(ROOT / "scripts/run_campus_experiment.sh"),
             "--experiment", job["experiment"], "--shot", str(job["shot"]),
             "--seed", str(job["seed"]), "--gpu", str(gpu),
-            "--config", job["config"], "--output", job["output"]]
+            "--config", job["config"], "--output", job["output"],
+            "--activation-offload", job.get("activation_offload", "diagnostics")]
 
 
 def save_status(path, jobs):
@@ -133,6 +134,7 @@ def main():
     p.add_argument("--skip", default="", help="comma-separated job names, e.g. E1_1shot")
     p.add_argument("--launch-delay", type=float, default=20.0, help="seconds between launches")
     p.add_argument("--cpu-threads", type=int, default=2)
+    p.add_argument("--activation-offload", choices=("off", "diagnostics", "all"), default="diagnostics")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
     try:
@@ -152,6 +154,8 @@ def main():
     if not skip <= {j["name"] for j in all_jobs}:
         p.error("unknown skipped job: " + ", ".join(sorted(skip - {j["name"] for j in all_jobs})))
     jobs = build_jobs(shots, a.seed, out, skip)
+    for job in jobs:
+        job["activation_offload"] = a.activation_offload
     if not jobs:
         p.error("no jobs remain")
     print(f"{len(jobs)} independent jobs, at most {len(gpus)} simultaneous; E3 requires separate calibration.", flush=True)

@@ -39,6 +39,7 @@ class DTOTSFSAR(TS_FSAR):
         self._dto_ce_values = []
         self._dto_kl_value = None
         self._dto_score = None
+        self._dto_task_loss = None
         self.ce.register_forward_hook(self._capture_ce)
         self.kl.register_forward_hook(self._capture_kl)
         self.ts_dcm.register_forward_hook(self._capture_dcm)
@@ -58,16 +59,23 @@ class DTOTSFSAR(TS_FSAR):
     def _components(self, target_labels):
         if self._dto_score is None or len(self._dto_ce_values) < 3 or self._dto_kl_value is None:
             raise RuntimeError("DTO-KD hooks did not capture the expected TS-FSAR losses")
-        task = F.cross_entropy(self._dto_score, target_labels.long())
+        if self._dto_task_loss is None:
+            self._dto_task_loss = F.cross_entropy(self._dto_score, target_labels.long())
+        task = self._dto_task_loss
         # TS_FSAR calls CE in this fixed order: student global, teacher text,
         # and LSN text.  The order is part of the existing forward contract.
         student_ce, teacher_ce, lsn_ce = self._dto_ce_values[:3]
         return task, self._dto_kl_value, student_ce, teacher_ce, lsn_ce
 
-    def forward(self, images, context_labels, target_labels, real_labels=None, class_embeddings=None):
+    def clear_dto_cache(self):
+        """Release episode graph references once diagnostics/backward finish."""
         self._dto_ce_values = []
         self._dto_kl_value = None
         self._dto_score = None
+        self._dto_task_loss = None
+
+    def forward(self, images, context_labels, target_labels, real_labels=None, class_embeddings=None):
+        self.clear_dto_cache()
         output = super().forward(images, context_labels, target_labels, real_labels, class_embeddings)
         if not self.training or self.dto_mode == "off":
             return output

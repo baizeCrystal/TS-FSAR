@@ -28,13 +28,22 @@ class LabelTransferTest(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 self.weight = torch.nn.Parameter(torch.tensor(1.0))
+                self.cache_active = False
+                self.clear_count = 0
 
             def forward(self, images, support, query, real_labels, embeddings):
+                if self.cache_active:
+                    raise AssertionError('previous episode cache was not cleared')
+                self.cache_active = True
                 # A CPU spy replaces CUDA; check both index/CE labels were moved.
                 for labels in (support, query):
                     if not any(labels is tensor for tensor in moved):
                         raise AssertionError("episode labels did not follow images to CUDA")
                 return {"loss": self.weight.square() * images.mean(), "acc": 0.5}
+
+            def clear_dto_cache(self):
+                self.cache_active = False
+                self.clear_count += 1
 
         model = TinyModel()
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
@@ -47,7 +56,7 @@ class LabelTransferTest(unittest.TestCase):
             "real_target_labels": torch.tensor([[[2, 3]]]),
         }
         cfg = types.SimpleNamespace(
-            TRAIN=types.SimpleNamespace(NUM_TRAIN_TASKS=1, VAL_FRE_ITER=500, BATCH_SIZE_PER_TASK=1),
+            TRAIN=types.SimpleNamespace(NUM_TRAIN_TASKS=3, VAL_FRE_ITER=500, BATCH_SIZE_PER_TASK=1),
             DTO_KD=types.SimpleNamespace(GRADIENT_SAMPLE_INTERVAL=0))
         baseline = types.ModuleType("main")
         baseline.scaler = types.SimpleNamespace(scale=lambda loss: loss,
@@ -55,10 +64,12 @@ class LabelTransferTest(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"main": baseline}), \
                 mock.patch.object(torch.Tensor, "cuda", cpu_transfer), \
                 mock.patch.object(dto_train, "autocast", contextlib.nullcontext):
-            dto_train.train_epoch([batch], [], model, None, None, optimizer,
+            dto_train.train_epoch([dict(batch) for _ in range(3)], [], model, None, None, optimizer,
                                   lambda step: None, mock.Mock(), cfg)
         self.assertLess(model.weight.item(), 1.0)
-        self.assertEqual(len(moved), 6)
+        self.assertEqual(len(moved), 18)
+        self.assertEqual(model.clear_count, 3)
+        self.assertFalse(model.cache_active)
 
 
 class QueueTest(unittest.TestCase):
@@ -111,9 +122,10 @@ class QueueTest(unittest.TestCase):
                             "--config", str(source), "--output", str(out / "config.yaml"),
                             "--output-dir", str(out), "--smoke"], check=True)
             cfg = yaml.safe_load((out / "config.yaml").read_text())
-            self.assertEqual(cfg["TRAIN"]["NUM_TRAIN_TASKS"], 2)
+            self.assertEqual(cfg["TRAIN"]["NUM_TRAIN_TASKS"], 3)
             self.assertEqual(cfg["TRAIN"]["NUM_TEST_TASKS"], 2)
-            self.assertEqual(cfg["DTO_KD"]["GRADIENT_SAMPLE_INTERVAL"], 1)
+            self.assertEqual(cfg["DTO_KD"]["GRADIENT_SAMPLE_INTERVAL"], 2)
+            self.assertEqual(cfg["DTO_KD"]["ACTIVATION_OFFLOAD"], 'diagnostics')
             self.assertEqual(len(cfg["TEST"]["CLASS_NAME"]), 12)
             ann = Path(cfg["DATA"]["ANNO_DIR"])
             expected = (suite.ROOT / 'configs/ssv2_small/val_few_shot.txt').read_text().splitlines()
