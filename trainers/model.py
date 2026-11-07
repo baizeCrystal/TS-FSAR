@@ -328,7 +328,7 @@ def build_model(cfg):
     text_model = CLIPTextModelWithProjection.from_pretrained(
         pretrained_model_name_or_path=f"./model/{cfg.VIDEO.HEAD.BACKBONE_NAME}",
         local_files_only=True,
-        ignore_mismatched_sizes=True,
+        ignore_mismatched_sizes=False,
         config=f"./model/{cfg.VIDEO.HEAD.BACKBONE_NAME}/config.json"
     )
     tokenizer = CLIPTokenizer.from_pretrained(
@@ -338,7 +338,7 @@ def build_model(cfg):
     image_model = CLIPVisionModelWithProjection.from_pretrained(
         pretrained_model_name_or_path=f"./model/{cfg.VIDEO.HEAD.BACKBONE_NAME}/",
         local_files_only=True,
-        ignore_mismatched_sizes=True,
+        ignore_mismatched_sizes=False,
         config=f"./model/{cfg.VIDEO.HEAD.BACKBONE_NAME}/config.json"
     )
     print("A CLIP {} is loaded !".format(cfg.VIDEO.HEAD.BACKBONE_NAME))
