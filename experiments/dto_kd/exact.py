@@ -11,6 +11,8 @@ import time
 
 import torch
 
+from .parameter_groups import is_lsn_parameter
+
 
 def log_loss(loss, eps):
     if not math.isfinite(eps) or eps <= 0:
@@ -71,7 +73,7 @@ def shared_lsn_weights(model, distill, task, eps):
     log_loss(distill, eps)
     log_loss(task, eps)
     selected = [(n, p) for n, p in model.named_parameters()
-                if n.startswith('model.side.') and p.requires_grad]
+                if is_lsn_parameter(n) and p.requires_grad]
     if not selected:
         raise RuntimeError('DTO exact solver found no trainable shared-LSN candidates')
     params = [p for _, p in selected]

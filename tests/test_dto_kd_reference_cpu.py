@@ -9,7 +9,7 @@ from unittest import mock
 import torch
 
 from experiments.dto_kd.exact import log_loss, shared_lsn_weights, solve_gram
-from experiments.dto_kd.diagnostics import diagnose
+from experiments.dto_kd.diagnostics import diagnose, parameter_group
 from experiments.dto_kd.acceptance import require_adaptation_certificate
 from experiments.dto_kd.rigorous import train
 from experiments.dto_kd.episodes import loader
@@ -22,6 +22,53 @@ from utils.optimizer import construct_optimizer
 
 
 class ExactSolverTest(unittest.TestCase):
+    def test_real_lsn_names_and_shared_graph_filter_match_direct_log_gradients(self):
+        model = torch.nn.Module()
+        model.model = torch.nn.Module()
+        lsn = model.model
+        lsn.side_downsample = torch.nn.ModuleList([torch.nn.Linear(2, 2)])
+        lsn.side_transformer = torch.nn.ModuleList([torch.nn.Linear(2, 2)])
+        lsn.side_LN = torch.nn.ModuleList([torch.nn.LayerNorm(2)])
+        lsn.side_gate_params = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros(1))])
+        lsn.side_last_LN = torch.nn.LayerNorm(2)
+        lsn.side_proj_downsample = torch.nn.Linear(2, 2)
+        lsn.side_post_LN = torch.nn.LayerNorm(2)
+        lsn.side_reduce = torch.nn.Linear(2, 2)
+        shared = list(model.named_parameters())
+        lsn.side_frozen = torch.nn.Parameter(torch.ones(2), requires_grad=False)
+        lsn.side_distill_only = torch.nn.Parameter(torch.ones(2))
+        lsn.side_task_only = torch.nn.Parameter(torch.ones(2))
+        lsn.side_unused = torch.nn.Parameter(torch.ones(2))
+        # These are graph-connected but outside the shared LSN scope.
+        lsn.sideways = torch.nn.Linear(2, 2)
+        lsn.Adapter = torch.nn.Linear(2, 2)
+        lsn.Linear = torch.nn.Linear(2, 2)
+        lsn.up_linear = torch.nn.Linear(2, 2)
+        model.ts_dcm = torch.nn.Module()
+        model.ts_dcm.generator = torch.nn.Linear(2, 2)
+        private = [p for n, p in model.named_parameters()
+                   if n.startswith(('model.sideways.', 'model.Adapter.', 'model.Linear.',
+                                    'model.up_linear.', 'ts_dcm.'))]
+        # Include a graph-connected numerical zero gradient; it must be retained.
+        a = sum((i * p).sum() for i, (_, p) in enumerate(shared))
+        b = sum(((i % 3 - 1) * p).sum() for i, (_, p) in enumerate(shared))
+        extra = sum(p.sum() for p in private) + lsn.side_frozen.sum()
+        d = (a * .01 + extra * .01 + lsn.side_distill_only.sum() * .01).exp()
+        t = (b * .02 + extra * .01 + lsn.side_task_only.sum() * .01).exp()
+        params = [p for _, p in shared]
+        gd = torch.cat([g.reshape(-1).double() for g in torch.autograd.grad(d.log(), params, retain_graph=True)])
+        gt = torch.cat([g.reshape(-1).double() for g in torch.autograd.grad(t.log(), params, retain_graph=True)])
+        expected = solve_gram(float(gd.dot(gd)), float(gd.dot(gt)), float(gt.dot(gt)),
+                              float((gd-gt).square().sum()))
+        result = shared_lsn_weights(model, d, t, 1e-8)
+        self.assertEqual(result['solver_parameter_names'], [n for n, _ in shared])
+        self.assertEqual(result['solver_numel'], sum(p.numel() for p in params))
+        self.assertAlmostEqual(result['pi_distill'], expected['pi_distill'], places=6)
+        self.assertTrue(result['pair_kkt_verified'])
+        self.assertTrue(all(parameter_group(n) == 'lsn' for n, _ in shared))
+        self.assertEqual(parameter_group('model.sideways.weight'), 'other')
+        self.assertTrue(all(p.grad is None for p in model.parameters()))
+
     def test_simplex_solver_matches_dense_search_and_kkt_at_extreme_scales(self):
         pairs = [([2., 0.], [-1., 1.]), ([1., 0.], [2., 0.]),
                  ([2., 0.], [1., 0.]), ([1., 0.], [-1., 0.]),

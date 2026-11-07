@@ -38,7 +38,16 @@ E1_amortized 与 E1_exact 两个新配置不使用这些改动，不把旧 E1_sa
     pi_t = 1-pi_d
 
 `experiments/dto_kd/exact.py` 每步用两次 autograd.grad 取得真实梯度，CPU FP64 计算 Gram 与梯度差范数；
-仅纳入两目标都在计算图上连接的可训练 `model.side.*` 参数，逐项记录名称和数量。
+仅纳入两目标都在计算图上连接的可训练 LSN 参数，逐项记录名称和数量。
+真实模块为 `model.side_downsample.*`、`model.side_transformer.*`、
+`model.side_LN.*`、`model.side_gate_params.*` 等 `model.side_*` 层级；
+筛选规则与梯度诊断共用，并兼容小型测试的 `model.side.*`。
+冻结参数、仅连接一个目标的参数、教师 Adapter、分类头和 TSM 均不纳入求解。
+
+2026-11-07 修复：此前求解器误用 `model.side.` 前缀，导致真实模型没有候选参数、
+校园验收中止。旧小型测试使用同一简化命名，未覆盖该错误；现集成测试改用真实
+`side_downsample` 命名，并新增覆盖各 LSN 层级、图连接过滤和直接 log 梯度对照的回归测试。
+此次修复不改变目标函数、超参数或评测协议；完整模型仍须在校园重新通过 CUDA 验收。
 等梯度时选择 .5/.5；边界解保留，不以 softmax 替代闭式 simplex 解。
 通过 KKT 条件检查 `<g_i,g*> >= ||g*||²`；内部解检查自然包含两目标等贡献性质。
 论文中的闭式理论和 Eq.18 近似必须区分，后者没有逐步读取真实梯度夹角。

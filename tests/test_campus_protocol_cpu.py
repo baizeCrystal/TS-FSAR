@@ -26,13 +26,15 @@ def namespace(value):
 class TinyLSN(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.side = torch.nn.Linear(3, 4)
+        # Match the real LSN namespace so integration tests exercise parameter
+        # selection used by the exact solver, not an invented model.side tree.
+        self.side_downsample = torch.nn.ModuleList([torch.nn.Linear(3, 4)])
         self.Adapter = torch.nn.Linear(4, 4)
         self.up_linear = torch.nn.Linear(4, 4, bias=False)
         self.up_ln = torch.nn.LayerNorm(4)
 
     def forward(self, images):
-        features = self.side(images.mean((-1, -2)))
+        features = self.side_downsample[0](images.mean((-1, -2)))
         offsets = features.new_tensor([0., 0.1, 0.3, 0.7]).reshape(1, 4, 1)
         return features[:, None, :] + offsets, features
 

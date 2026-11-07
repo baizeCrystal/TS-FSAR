@@ -3,6 +3,7 @@ import torch
 
 from .controller import gradient_metrics
 from .gradient_utils import loss_gradients
+from .parameter_groups import is_lsn_parameter
 
 
 def coefficients(model, cfg, task, distill):
@@ -19,7 +20,7 @@ def coefficients(model, cfg, task, distill):
 
 
 def parameter_group(name):
-    if name.startswith('model.side'):
+    if is_lsn_parameter(name):
         return 'lsn'
     if name.startswith(('model.up_linear', 'model.up_ln')):
         return 'lsn_text_head'
