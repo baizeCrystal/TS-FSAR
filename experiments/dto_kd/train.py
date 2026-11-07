@@ -26,9 +26,9 @@ def train_epoch(train_loader, val_loader, model, train_embeddings, test_embeddin
         for key in task_dict:
             task_dict[key] = task_dict[key][0]
         context_imgs = task_dict["support_set"].squeeze(0).cuda(non_blocking=True)
-        context_labels = task_dict["support_labels"].squeeze(0).long()
+        context_labels = task_dict["support_labels"].squeeze(0).long().cuda(non_blocking=True)
         target_imgs = task_dict["target_set"].squeeze(0).cuda(non_blocking=True)
-        target_labels = task_dict["target_labels"].squeeze(0).long()
+        target_labels = task_dict["target_labels"].squeeze(0).long().cuda(non_blocking=True)
         context_real = task_dict["real_support_labels"].squeeze(0).long().cuda(non_blocking=True)
         target_real = task_dict["real_target_labels"].squeeze(0).long().cuda(non_blocking=True)
         images = torch.cat((context_imgs, target_imgs), dim=0)
