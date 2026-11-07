@@ -1,0 +1,7 @@
+.conda-env/
+.venv/
+model/
+output/
+runs/
+__pycache__/
+*.pyc

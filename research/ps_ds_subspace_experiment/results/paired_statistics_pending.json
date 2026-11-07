@@ -1,0 +1,35 @@
+{
+  "status": "pending_gpu_evaluation",
+  "reason": "no available GPU on original server; no real model inference performed",
+  "shots": {
+    "1": {
+      "episodes_planned": 10000,
+      "e0_matching": null,
+      "e1_matching": null,
+      "e0_fusion": null,
+      "e1_fusion": null,
+      "matching_delta_pp": null,
+      "fusion_delta_pp": null,
+      "corrected": null,
+      "introduced": null,
+      "bootstrap_ci95": null,
+      "hard_negative": null,
+      "actual_gpu_extra_seconds": null
+    },
+    "5": {
+      "episodes_planned": 10000,
+      "e0_matching": null,
+      "e1_matching": null,
+      "e0_fusion": null,
+      "e1_fusion": null,
+      "matching_delta_pp": null,
+      "fusion_delta_pp": null,
+      "corrected": null,
+      "introduced": null,
+      "bootstrap_ci95": null,
+      "hard_negative": null,
+      "actual_gpu_extra_seconds": null
+    }
+  },
+  "bootstrap_repetitions": 10000
+}

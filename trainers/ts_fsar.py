@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from einops import rearrange
 from utils.functions import cos_sim, extract_class_indices, DistillKL
 from trainers.model import LSN
+from trainers.frame_tsm import FrameMatchingGenerator
+from trainers.support_weighting import DiscriminativeSupportAggregation
+from trainers.tsm_residual import TSMResidual, support_condition
 import utils.logging as logging
 
 logger = logging.get_logger(__name__)
@@ -57,6 +60,33 @@ class TS_DCM(nn.Module):
         self.cfg = cfg
         self.alpha_dc = Alpha_DC(cfg.TRAIN.DC_ALPHA)
         self.generator = nn.Linear(hidden_dim, cfg.DATA.NUM_INPUT_FRAMES * cfg.DATA.NUM_INPUT_FRAMES, bias=False)
+        self.support_aggregation_mode = getattr(cfg, 'TSM_SUPPORT_AGGREGATION', 'mean')
+        if self.support_aggregation_mode not in ('mean','query_softmax','team_diff_query_softmax'):
+            raise ValueError('Unknown TSM_SUPPORT_AGGREGATION: '+self.support_aggregation_mode)
+        if self.support_aggregation_mode != 'mean':
+            self.support_aggregator = DiscriminativeSupportAggregation(cfg)
+
+        self.tsm_variant = getattr(cfg, "TSM_VARIANT", "original")
+        if self.tsm_variant not in ("original", "frame", "ematch_frame"):
+            raise ValueError("Unknown TSM_VARIANT: " + self.tsm_variant)
+        if self.tsm_variant != "original":
+            # Keep the original RNG stream for all existing modules and dropout.
+            with torch.random.fork_rng(devices=[]):
+                self.frame_generator = FrameMatchingGenerator(cfg, hidden_dim)
+        residual = getattr(cfg, 'TSM_RESIDUAL', None)
+        self.residual_enabled = bool(getattr(residual, 'ENABLE', False))
+        if self.residual_enabled:
+            if self.tsm_variant != 'original' or self.support_aggregation_mode != 'mean':
+                raise ValueError('Residual ablation must start from original TSM')
+            if float(getattr(residual, 'SCALE', 1.0)) != 1.0:
+                raise ValueError('This experiment fixes residual lambda=1')
+            # Construction is CPU-only and restores the existing RNG stream.
+            # "generator" also puts these parameters in the ORIGINAL optimizer's
+            # generator group, with its unchanged LR/weight-decay/schedule.
+            with torch.random.fork_rng(devices=[]):
+                torch.random.default_generator.manual_seed(getattr(residual, 'INIT_SEED', 0))
+                self.residual_generator = TSMResidual(residual.MODE, residual.SUPPORT_CONDITION)
+        self.residual_observer = None
 
     def forward(self, lsn_output, context_labels, way, shot, query_per_class):
         lsn_cls = lsn_output[:, 0]       
@@ -77,9 +107,14 @@ class TS_DCM(nn.Module):
         task_support = task_support.reshape(1, 1, -1).repeat(way * query_per_class, way, 1)
 
         qs_prototype = task_support + task_query #query-specific task prototype
+        if self.support_aggregation_mode != 'mean':
+            video_support = support_cls.reshape(way*shot,self.cfg.DATA.NUM_INPUT_FRAMES,-1).mean(1)
+            prototype = self.support_aggregator(task_query[:,0], video_support, context_labels)
+            qs_prototype = prototype[:,None,:].expand(-1,way,-1)
         tsm_matrix = self.generator(qs_prototype) # task-specific matching matrix
 
         unique_labels = torch.unique(context_labels)
+        sample_context_features = context_features.reshape(way * shot, self.cfg.DATA.NUM_INPUT_FRAMES, -1)
         context_features = context_features.reshape(way * shot, self.cfg.DATA.NUM_INPUT_FRAMES,  -1 )
         context_features = [torch.mean(torch.index_select(context_features, 0, extract_class_indices(context_labels, c)), dim=0) for c in unique_labels]
             
@@ -89,6 +124,39 @@ class TS_DCM(nn.Module):
         ad_matrix = cos_sim(z_query, z_proto) # inter-frame alpha-Distance Correlation/alpha-D matrix
         ad_matrix = rearrange(ad_matrix, '(tb ts) (sb ss) -> tb sb ts ss', tb=way*query_per_class, sb = way)
         score = (ad_matrix.reshape(way * query_per_class, way, -1) * tsm_matrix).sum(-1)
+        if self.residual_enabled:
+            frames = self.cfg.DATA.NUM_INPUT_FRAMES
+            base_weight = tsm_matrix.reshape(-1, way, frames, frames)
+            bc = None
+            if self.residual_generator.conditioned:
+                bc = support_condition(sample_context_features, context_labels, unique_labels)
+            delta = self.residual_generator(ad_matrix, base_weight, bc)
+            changed = (ad_matrix.reshape(way * query_per_class, way, -1) *
+                       (base_weight + delta).reshape(way * query_per_class, way, -1)).sum(-1)
+            if self.residual_observer is not None:
+                self.residual_observer(ad_matrix, base_weight, delta, score, changed, self.training)
+            score = changed
+        if self.tsm_variant != "original":
+            frames = self.cfg.DATA.NUM_INPUT_FRAMES
+            query_frames = query_cls.reshape(-1, frames, query_cls.shape[-1])
+            support_frames = support_cls.reshape(way * shot, frames, support_cls.shape[-1])
+            initial = None
+            if self.tsm_variant == "ematch_frame":
+                # Sample-level selection only; never alter the class-level M_corr above.
+                sample_corr = cos_sim(target_features, sample_context_features.reshape(way * shot * frames, -1))
+                sample_corr = rearrange(sample_corr, '(q t) (s u) -> q s t u', q=way*query_per_class, s=way*shot)
+                initial = (sample_corr * tsm_matrix[:, :1].reshape(-1, 1, frames, frames)).sum((-1, -2))
+                if self.frame_generator.statistics is not None:
+                    self._initial_for_statistics = initial.detach()
+            delta = self.frame_generator(query_frames, support_frames, initial)
+            # Original axes are [query frame, support frame]. Average weights over
+            # same-class samples, keeping TS-FSAR's original feature-prototype protocol.
+            delta_class = torch.stack([
+                delta.index_select(1, extract_class_indices(context_labels, c)).mean(1)
+                for c in unique_labels
+            ], dim=1)
+            final = tsm_matrix.reshape(-1, way, frames, frames) + self.frame_generator.residual_scale * delta_class
+            score = (ad_matrix * final).sum((-1, -2))
         return score, adc_repre, lsn_cls
 
 class TS_FSAR(nn.Module):
@@ -126,6 +194,10 @@ class TS_FSAR(nn.Module):
             lsn_features, context_labels,
             way, shot, query_per_class
         )
+        if (self.ts_dcm.tsm_variant == 'ematch_frame'
+                and self.ts_dcm.frame_generator.statistics is not None):
+            self.ts_dcm.frame_generator.statistics.update(
+                self.ts_dcm._initial_for_statistics, context_labels, target_labels, self.training)
         if self.model.training:
             logits_vision = F.log_softmax(score, dim=1)
             loss_vision = F.nll_loss(logits_vision, target_labels.type(torch.long)) #TS-DCM
@@ -147,12 +219,29 @@ class TS_FSAR(nn.Module):
             logits_v2t_lsn = feat_lsn_norm @ class_embeddings.t() * self.cfg.TEMP_SIDE
             loss_text_lsn = self.ce(logits_v2t_lsn, real_labels) #LSN
             loss_gk = self.kl(logits_lsn_adc, logits_v2t_clip) # GLAC-KL
+            glac = getattr(self.cfg, 'GLAC', None)
+            enabled = getattr(glac, 'ENABLE', True)
+            use_kl = enabled and getattr(glac, 'ENABLE_KL', True)
+            use_student_ce = enabled and getattr(glac, 'ENABLE_STUDENT_CE', True)
+            use_teacher_ce = enabled and getattr(glac, 'ENABLE_TEACHER_CE', True)
+            # Keep the complete original forward and RNG calls. Disabled terms
+            # remain measured for logging, but have no path into the total loss.
             loss = (
                 self.cfg.TRAIN.VIS_ALPHA * loss_vision +
-                self.cfg.TRAIN.CLS_ALPHA * loss_gc +
+                self.cfg.TRAIN.CLS_ALPHA * (loss_gc if use_student_ce else 0.) +
                 self.cfg.TRAIN.SIDE_CLS_ALPHA * loss_text_lsn +
-                self.cfg.TRAIN.KD_ALPHA * (loss_gk + loss_text_clip)
+                self.cfg.TRAIN.KD_ALPHA * ((loss_gk if use_kl else 0.) + (loss_text_clip if use_teacher_ce else 0.))
             )
+            if getattr(glac, 'LOG_COMPONENTS', False):
+                self.last_loss_components = {
+                    'total': loss.detach(), 'ts_dcm': loss_vision.detach(),
+                    'lsn_ce': loss_text_lsn.detach(), 'kl': loss_gk.detach(),
+                    'student_ce': loss_gc.detach(), 'teacher_ce': loss_text_clip.detach(),
+                    'kl_enabled': use_kl, 'student_ce_enabled': use_student_ce,
+                    'teacher_ce_enabled': use_teacher_ce,
+                }
+            if self.ts_dcm.support_aggregation_mode != 'mean':
+                self.ts_dcm.support_aggregator.record_accuracy(score.argmax(1),target_labels,self.training)
             return {
                 "loss": loss,
                 "acc": acc_vision.item()
@@ -175,6 +264,8 @@ class TS_FSAR(nn.Module):
             pred = log.argmax(dim=1)
             acc = torch.eq(pred, target_labels).float().mean()
             loss_val = F.nll_loss(torch.log(log + 1e-8), target_labels.type(torch.long))
+            if self.ts_dcm.support_aggregation_mode != 'mean':
+                self.ts_dcm.support_aggregator.record_accuracy(pred,target_labels,self.training)
 
             return {
                 "loss": loss_val,

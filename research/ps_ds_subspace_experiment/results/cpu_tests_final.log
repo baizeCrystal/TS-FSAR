@@ -1,0 +1,19 @@
+test_actual_256_196_shape_and_query_independence (test_numerics.Numerics) ... /home/zyb/TS-FSAR/.conda-env/lib/python3.8/site-packages/einops/_torch_specific.py:109: ImportWarning: allow_ops_in_compiled_graph failed to import torch: ensure pytorch >=2.0
+  warnings.warn("allow_ops_in_compiled_graph failed to import torch: ensure pytorch >=2.0", ImportWarning)
+ok
+test_cayley_dense_equivalence_descent_and_constraint (test_numerics.Numerics) ... ok
+test_disabled_is_bitwise_e0_and_preserves_parameters (test_numerics.Numerics) ... ok
+test_ds_small_step_descends_away_from_wsd_cusp (test_numerics.Numerics) ... ok
+test_full_channel_identity_projection_matches_original_tsm (test_numerics.Numerics) ... ok
+test_ps_ds_full_steps_finite_and_order_invariant (test_numerics.Numerics) ... ok
+test_svd_equivalence_and_rank_failure (test_numerics.Numerics) ... ok
+test_wsd_against_direct_paper_sum_and_gradient (test_numerics.Numerics) ... ok
+test_complete_report_pipeline_on_explicit_synthetic_fixture (test_statistics.PairedStatistics) ... ok
+test_episode_unit_and_transitions (test_statistics.PairedStatistics) ... ok
+test_hard_negative_keeps_e0_confuser (test_statistics.PairedStatistics) ... ok
+test_zero_delta_reproducible_ci_and_minimum_repetitions (test_statistics.PairedStatistics) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 10.033s
+
+OK

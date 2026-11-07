@@ -116,9 +116,11 @@ class BaseVideoDataset(torch.utils.data.Dataset):
             success         (bool):         flag for the indication of success or not.
         """
         try:
-            vr = VideoReader(video_path)
+            vr = VideoReader(video_path, num_threads=int(getattr(self.cfg.DATA, "DECODE_THREADS", 0)))
             return vr, [], True
         except Exception as e:
+            if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                raise RuntimeError(f"Unable to open video: {video_path}") from e
             print(f"[Error] Cannot read video {video_path}")
             traceback.print_exc()
             return None, [], False
@@ -159,7 +161,12 @@ class BaseVideoDataset(torch.utils.data.Dataset):
                 random_sample=True if self.split=="train" else False 
             )
             frames = None
-            frames = dlpack.from_dlpack(vr.get_batch(list_).to_dlpack()).clone()
+            try:
+                frames = dlpack.from_dlpack(vr.get_batch(list_).to_dlpack()).clone()
+            except Exception as error:
+                if getattr(self.cfg.DATA, "FAIL_ON_DECODE_ERROR", False):
+                    raise RuntimeError(f"Unable to decode sampled frames: {path}") from error
+                raise
             frame_list.append(frames)
         frames = torch.stack(frame_list)
         if num_clips_per_video == 1:

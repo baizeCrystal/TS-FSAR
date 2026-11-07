@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.tar.gz
+*.tar.gz.sha256
+results/shot1/
+results/shot5/

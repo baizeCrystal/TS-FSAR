@@ -1,3 +1,7 @@
+# PS+DS frozen TS-FSAR evaluation
+
+This branch implements the single PS→DS channel-subspace experiment. Start with [the GitHub/campus quickstart](research/ps_ds_subspace_experiment/GITHUB_QUICKSTART.md). Frozen E0 weights and fixed episode manifests are private Release assets; no training is required. Formal PS+DS accuracy is pending GPU evaluation.
+
 # TS-FSAR: Task-Specific Distance Correlation Matching for Few-Shot Action Recognition
 
 <p align="center">
