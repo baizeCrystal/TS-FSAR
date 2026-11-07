@@ -113,12 +113,22 @@ class DTOController:
     def update(self, distill_loss: torch.Tensor, task_loss: torch.Tensor) -> DTOState:
         ld = _finite_scalar(distill_loss, self.eps)
         lt = _finite_scalar(task_loss, self.eps)
+        return self.update_from_logs(torch.log(ld), torch.log(lt))
+
+    def update_from_logs(self, log_distill: torch.Tensor, log_task: torch.Tensor) -> DTOState:
+        """Apply the existing weight rule to explicitly defined log losses.
+
+        The safe FSAR adaptation passes log1p losses directly, avoiding loss of
+        precision from constructing 1 + a very small KL in FP32.
+        """
         p = self._weights()
         # Controller state intentionally lives on CPU, outside model.cuda().
         # Transfer only these two detached scalars, not either model loss graph.
-        logs = torch.stack([torch.log(ld), torch.log(lt)]).to(
+        logs = torch.stack([log_distill.detach().reshape(()), log_task.detach().reshape(())]).to(
             device=self._logits.device, dtype=self._logits.dtype
         )
+        if not bool(torch.isfinite(logs).all()):
+            raise FloatingPointError('DTO-KD received non-finite log losses')
         scalar = torch.dot(p, logs)
         # d/d pi 1/2 (pi dot log L)^2, followed by the softmax Jacobian.
         grad_pi = scalar * logs

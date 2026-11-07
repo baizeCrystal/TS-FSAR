@@ -6,6 +6,8 @@ from .gradient_utils import loss_gradients
 
 
 def coefficients(model, cfg, task, distill):
+    if model.dto_mode == 'safe_dynamic':
+        return model.dto_last_metrics['task_coefficient'], model.dto_last_metrics['distill_coefficient']
     if model.dto_mode == 'dynamic':
         # These are the weights used by this forward, before the next update.
         d, t = model.dto_last_metrics['pi_distill'], model.dto_last_metrics['pi_task']
@@ -38,6 +40,7 @@ def diagnose(model, cfg, target_labels):
     vectors = loss_gradients({'distill': distill, 'task': task, 'auxiliary': auxiliary},
                              [p for _, p in names_params])
     task_weight, distill_weight = coefficients(model, cfg, task, distill)
+    auxiliary_weight = model.dto_last_metrics.get('auxiliary_coefficient', 1.) if model.dto_mode == 'safe_dynamic' else 1.
     slices, offset = {}, 0
     for name, param in names_params:
         slices.setdefault(parameter_group(name), []).append((offset, offset + param.numel()))
@@ -54,13 +57,20 @@ def diagnose(model, cfg, target_labels):
         effective_distill = distill_weight * selected['distill'].double()
         effective_task = task_weight * selected['task'].double()
         weighted = gradient_metrics(effective_distill, effective_task)
-        auxiliary_metrics = gradient_metrics(selected['auxiliary'], effective_task)
-        all_auxiliary = gradient_metrics(selected['auxiliary'].double() + effective_distill, effective_task)
+        effective_auxiliary = auxiliary_weight * selected['auxiliary'].double()
+        auxiliary_metrics = gradient_metrics(effective_auxiliary, effective_task)
+        all_auxiliary = gradient_metrics(effective_auxiliary + effective_distill, effective_task)
+        distill_vs_auxiliary = gradient_metrics(effective_distill, effective_auxiliary)
+        distill_vs_supervised = gradient_metrics(effective_distill, effective_task + effective_auxiliary)
         rows.append({'parameter_group': group, 'finite': True, 'task_coefficient': task_weight,
                      'distill_coefficient': distill_weight,
+                     'auxiliary_coefficient': auxiliary_weight,
+                     'detach_teacher': model.dto_detach_teacher,
                      **{'raw_' + k: v for k, v in raw.items()},
                      **{'weighted_' + k: v for k, v in weighted.items()},
                      **{'auxiliary_' + k: v for k, v in auxiliary_metrics.items()},
                      **{'all_auxiliary_' + k: v for k, v in all_auxiliary.items()},
+                     **{'distill_vs_auxiliary_' + k: v for k, v in distill_vs_auxiliary.items()},
+                     **{'distill_vs_supervised_' + k: v for k, v in distill_vs_supervised.items()},
                      'both_objective_gradients_nonzero': raw['task_norm'] > 0 and raw['distill_norm'] > 0})
     return rows

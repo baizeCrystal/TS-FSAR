@@ -294,6 +294,8 @@ class RigorousTrainingTest(unittest.TestCase):
             self.assertEqual(full_model.dto_controller.weights, resumed_model.dto_controller.weights)
             self.assertEqual(full_summary['train_sequence_sha256'], resumed_summary['train_sequence_sha256'])
             self.assertEqual(full_summary['successful_updates'], 4)
+            traces = [json.loads(line) for line in (root / 'full/train_trace.jsonl').read_text().splitlines()]
+            self.assertTrue(all('teacher_entropy' in row['global_responses'] for row in traces))
             for key, value in full_optimizer.state_dict()['state'].items():
                 for field, actual in value.items():
                     torch.testing.assert_close(actual, resumed_optimizer.state_dict()['state'][key][field], rtol=0, atol=0)

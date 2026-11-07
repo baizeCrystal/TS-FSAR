@@ -29,6 +29,8 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--reuse-initialization-report', type=Path,
                         help='reuse only model/RNG initialization from a passed hashed report; rerun all checks')
+    parser.add_argument('--adaptation-checks', action='store_true',
+                        help='also certify E0_detach, E1_detach and E1_safe with common initialization')
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error('output-dir exists; choose a fresh directory')
@@ -189,9 +191,13 @@ def run_acceptance(args, out):
         torch.cuda.empty_cache()
     del inputs, batch, reference_gradients, reference_parameters
     smokes = []
-    for mode in ('off', 'dynamic'):
-        print('ACCEPTANCE_STAGE default-AMP smoke:', mode, flush=True)
-        smoke_out = out / ('smoke_' + mode)
+    variants = [('off', False, 'off'), ('dynamic', False, 'dynamic')]
+    if args.adaptation_checks:
+        variants += [('off', True, 'E0_detach'), ('dynamic', True, 'E1_detach'),
+                     ('safe_dynamic', True, 'E1_safe')]
+    for mode, detach_teacher, variant in variants:
+        print('ACCEPTANCE_STAGE default-AMP smoke:', variant, flush=True)
+        smoke_out = out / ('smoke_' + variant)
         smoke_out.mkdir()
         smoke_raw = copy.deepcopy(raw)
         smoke_raw['OUTPUT_DIR'] = smoke_raw['OUTPUT_DIR_SAVE'] = str(smoke_out)
@@ -199,7 +205,8 @@ def run_acceptance(args, out):
         # updates. This is a fixed acceptance-only budget, not a new recipe.
         smoke_raw['TRAIN'].update(NUM_TRAIN_TASKS=32, NUM_TEST_TASKS=2, VAL_FRE_ITER=32)
         smoke_raw['DTO_KD'].update(MODE=mode, GRADIENT_SAMPLE_INTERVAL=0,
-                                   GRADIENT_EARLY_STEPS=2, GRADIENT_EARLY_INTERVAL=2)
+                                   GRADIENT_EARLY_STEPS=2, GRADIENT_EARLY_INTERVAL=2,
+                                   DETACH_TEACHER=detach_teacher)
         smoke_raw['DATA_LOADER']['NUM_WORKERS'] = 0
         smoke_raw['LOG_PERIOD'] = 1
         cfg = Config(load=False, cfg_dict=copy.deepcopy(smoke_raw))
@@ -220,7 +227,23 @@ def run_acceptance(args, out):
             raise RuntimeError('32-episode default-AMP smoke had fewer than three effective updates')
         trace = [json.loads(line) for line in (smoke_out / 'train_trace.jsonl').read_text().splitlines()]
         schedule_check = verify_smoke_schedule(trace, base_lrs, cfg.TRAIN.NUM_TRAIN_TASKS)
-        smokes.append({'mode': mode, 'minimum_required_successful_updates': 3,
+        adaptation_check = None
+        if detach_teacher:
+            probes = [json.loads(line) for line in (smoke_out / 'gradient_groups.jsonl').read_text().splitlines()]
+            teacher_probes = [p for p in probes if p['parameter_group'] == 'teacher_adapter']
+            if not teacher_probes or not all(p.get('finite') and p['raw_distill_norm'] == 0.
+                                             and p['auxiliary_distill_norm'] > 0. for p in teacher_probes):
+                raise RuntimeError('KL target not stopped or teacher CE gradient missing')
+            if mode == 'safe_dynamic' and not all(
+                    0. <= row['distill_coefficient'] <= raw['TRAIN']['KD_ALPHA'] + 1e-12
+                    for row in trace):
+                raise RuntimeError('safe KL coefficient exceeded released alpha')
+            adaptation_check = {'passed': True, 'teacher_kl_gradient_zero': True,
+                                'teacher_ce_gradient_nonzero': True,
+                                'bounded_kl_coefficient_checked': mode == 'safe_dynamic'}
+        smokes.append({'mode': mode, 'variant': variant, 'detach_teacher': detach_teacher,
+                       'adaptation_check': adaptation_check,
+                       'minimum_required_successful_updates': 3,
                        'schedule_check': schedule_check,
                        'initial_amp_scale': 65536., 'skipped_updates': 32 - result['successful_updates'], **result})
         del model, optimizer, scheduler
@@ -240,7 +263,7 @@ def run_acceptance(args, out):
               'dataset_check': dataset_check,
               'tolerances': {'loss_rtol': 1e-5, 'loss_atol': 1e-6, 'gradient_rtol': 1e-3,
                              'gradient_atol': 1e-5, 'parameter_rtol': 1e-5, 'parameter_atol': 1e-6},
-              'scope': 'one effective real-episode update equality and 32-episode E0/E1 smoke; '
+              'scope': 'one effective real-episode update equality and 32-episode declared-variant smokes; '
                        'not final accuracy reproduction or full-run stability proof'}
     (out / 'acceptance.json').write_text(json.dumps(report, indent=2) + '\n')
     print('CAMPUS_ACCEPTANCE_PASSED', out / 'acceptance.json', flush=True)

@@ -8,6 +8,7 @@ gpu=''
 seed=0
 out=''
 reuse_report=''
+adaptation_checks=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --shot) shot="$2"; shift 2 ;;
@@ -15,6 +16,7 @@ while [[ $# -gt 0 ]]; do
     --seed) seed="$2"; shift 2 ;;
     --output) out="$2"; shift 2 ;;
     --reuse-initialization-report) reuse_report="$2"; shift 2 ;;
+    --adaptation-checks) adaptation_checks=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -41,4 +43,5 @@ exec > >(tee -a "${out}.console.log") 2>&1
 echo "[$(date -Is)] CUDA acceptance only: shot=$shot seed=$seed GPU=$gpu output=$out"
 args=(--shot "$shot" --seed "$seed" --gpu "$gpu" --output-dir "$out")
 if [[ -n "$reuse_report" ]]; then args+=(--reuse-initialization-report "$reuse_report"); fi
+if [[ "$adaptation_checks" == true ]]; then args+=(--adaptation-checks); fi
 exec python -u scripts/campus_acceptance.py "${args[@]}"

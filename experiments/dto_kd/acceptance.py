@@ -6,6 +6,19 @@ from pathlib import Path
 import torch
 
 
+def require_adaptation_certificate(report, mode, detach_teacher):
+    """A legacy E0/E1 certificate cannot admit a new gradient/objective path."""
+    if not detach_teacher and mode != 'safe_dynamic':
+        return
+    matches = [s for s in report.get('smokes', [])
+               if s.get('mode') == mode and s.get('detach_teacher') is True
+               and s.get('adaptation_check', {}).get('passed') is True
+               and s.get('schedule_check', {}).get('verified') is True
+               and s.get('successful_updates', 0) >= 3]
+    if not matches:
+        raise RuntimeError('new adaptation requires current-code --adaptation-checks CUDA acceptance')
+
+
 def load_certified_initialization(report_path, shot, seed, torch_version, gpu_name):
     """Reuse only a passed report's hashed initial state, never its training.
 

@@ -126,6 +126,7 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
         if not all(math.isfinite(x) for x in components.values()):
             raise FloatingPointError('non-finite loss components')
         tw, dw = coefficients(model, cfg, task, distill)
+        response_metrics = dict(model.dto_response_metrics)
         del task, distill, student, teacher, side
         if sampled:
             diagnostic_started = time.perf_counter()
@@ -181,6 +182,8 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
                'learning_rates': [g['lr'] for g in optimizer.param_groups],
                'diagnostic_seconds': diagnostic_seconds, 'elapsed_seconds': previous_elapsed + time.perf_counter() - started,
                'dto': model.dto_last_metrics,
+               'global_responses': response_metrics,
+               'detach_teacher': model.dto_detach_teacher,
                'peak_allocated_bytes': torch.cuda.max_memory_allocated(device) if cuda else None}
         if model.dto_controller is not None:
             row['controller_update_applied'] = effective_update
@@ -239,6 +242,9 @@ def main():
                 or certificate['torch'] != torch.__version__
                 or certificate['gpu'] != torch.cuda.get_device_name(0)):
             raise RuntimeError('CUDA acceptance certificate is stale or incompatible')
+        from .acceptance import require_adaptation_certificate
+        require_adaptation_certificate(certificate, cfg.DTO_KD.MODE,
+                                       bool(getattr(cfg.DTO_KD, 'DETACH_TEACHER', False)))
         bank_path = (certificate_path.parent / certificate['initialization_file']).resolve()
         if file_hash(bank_path) != certificate['initialization_file_sha256']:
             raise RuntimeError('certified initialization file changed')
@@ -280,6 +286,7 @@ def main():
                 'expected_episode0_sha256': certificate['episode0_sha256'] if certificate else None}
     metadata['evaluation_protocol_sha256'] = evaluation_signature(cfg)
     metadata['dto_mode'] = model.dto_mode
+    metadata['detach_teacher'] = model.dto_detach_teacher
     if cfg.TEST.ENABLE:
         checkpoint_path = Path(cfg.TEST.PRETRAIN_MODEL_PATH)
         metadata['trained_checkpoint_sha256'] = file_hash(checkpoint_path)

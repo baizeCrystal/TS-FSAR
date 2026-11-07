@@ -78,6 +78,9 @@ def main():
     p.add_argument('--resume', help='protocol-v2 complete resume_latest.pth, not model_best.pth')
     a = p.parse_args()
     c = yaml.safe_load(Path(a.config).read_text())
+    if a.protocol != 'v2' and (c.get('DTO_KD', {}).get('DETACH_TEACHER')
+                               or c.get('DTO_KD', {}).get('MODE') == 'safe_dynamic'):
+        raise SystemExit('new FSAR adaptations require protocol v2')
     if a.seed is not None:
         c['TRAIN']['RANDOM_SEED'] = a.seed
     if a.output_dir:

@@ -101,6 +101,25 @@ class DTOControllerCudaTest(unittest.TestCase):
         for got, want in zip(restored.weights, source.weights):
             self.assertAlmostEqual(got, want, places=6)
 
+    def test_safe_adaptation_real_loss_path_stops_target_under_amp(self):
+        from tests.test_dto_kd_adaptation_cpu import AdaptationGradientTest
+        for shot in (1, 5):
+            cfg, model, inputs = AdaptationGradientTest().fixture('E1_safe', shot)
+            model.cuda()
+            inputs = tuple(value.cuda() for value in inputs)
+            with torch.cuda.amp.autocast():
+                output = model(*inputs)
+            _, kl, _, ce, _ = model._components(inputs[2])
+            params = list(model.model.Adapter.parameters())
+            self.assertTrue(all(g is None for g in torch.autograd.grad(
+                kl, params, allow_unused=True, retain_graph=True)))
+            ce_grad = torch.autograd.grad(ce, params, retain_graph=True)
+            self.assertTrue(any(float(g.norm()) > 0. for g in ce_grad))
+            self.assertLessEqual(model.dto_last_metrics['distill_coefficient'], cfg.TRAIN.KD_ALPHA)
+            self.assertEqual(model.dto_controller.state_dict()['probabilities'].device.type, 'cpu')
+            output['loss'].backward()
+            self.assertTrue(all(bool(torch.isfinite(p.grad).all()) for p in params))
+
     def test_offloaded_diagnostic_step_preserves_warmed_adam_updates(self):
         def run(mode):
             param = torch.nn.Parameter(torch.arange(16, device='cuda', dtype=torch.float32).reshape(4, 4) / 16)

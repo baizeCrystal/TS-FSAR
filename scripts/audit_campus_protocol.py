@@ -99,6 +99,9 @@ def compare_config(path, generated=False):
             protocol is not None and protocol.get('current_evaluation_split') == split
             and protocol.get('checkpoint_selection_split') == 'Meta-Val')
     return {'config': str(path.resolve()), 'shot': shot, 'dto_mode': dto.get('MODE', 'off'),
+            'detach_teacher': bool(dto.get('DETACH_TEACHER', False)),
+            'objective_scope': 'shifted full-supervised and base-weighted KL' if dto.get('MODE') == 'safe_dynamic'
+                               else 'original scalar objective or declared DTO control',
             'protocol_version': cfg.get('RIGOROUS', {}).get('VERSION', 'legacy'),
             'controller_update': dto.get('UPDATE_RULE', 'legacy_logits'),
             'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),

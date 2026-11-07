@@ -18,21 +18,24 @@ class DTOTSFSAR(TS_FSAR):
     """TS-FSAR with optional E1/E2/E3 objective coordination.
 
     Hooks capture the already-computed DCM score, CE terms, and GLAC KL term.
-    The forward graph is otherwise the original graph.  This keeps teacher
-    Adapter gradients and all auxiliary CE terms intact.
+    Legacy configurations preserve the original graph. Explicit new variants
+    stop only the KL target gradient; teacher CE still trains its Adapter.
     """
 
     def __init__(self, cfg, image_clip):
         super().__init__(cfg, image_clip)
         dto = getattr(cfg, "DTO_KD", None)
         self.dto_mode = getattr(dto, "MODE", "off") if dto is not None else "off"
+        self.dto_detach_teacher = bool(getattr(dto, 'DETACH_TEACHER', False))
+        if self.dto_mode == 'safe_dynamic' and not self.dto_detach_teacher:
+            raise ValueError('safe_dynamic requires DETACH_TEACHER=true')
         self.dto_controller = DTOController(
             eta=float(getattr(dto, "ETA", 0.01)),
             init_distill=float(getattr(dto, "INIT_DISTILL_WEIGHT", 0.5)),
             eps=float(getattr(dto, "EPS", 1e-8)),
             logit_clip=float(getattr(dto, "LOGIT_CLIP", 20.0)),
             update_rule=str(getattr(dto, "UPDATE_RULE", "legacy_logits")),
-        ) if self.dto_mode == "dynamic" else None
+        ) if self.dto_mode in ("dynamic", "safe_dynamic") else None
         self.dto_static_kl_alpha = float(getattr(dto, "STATIC_KL_ALPHA", cfg.TRAIN.KD_ALPHA)) if dto is not None else float(cfg.TRAIN.KD_ALPHA)
         self.dto_trace_interval = int(getattr(dto, "TRACE_INTERVAL", 100)) if dto is not None else 0
         self.dto_step = 0
@@ -41,9 +44,18 @@ class DTOTSFSAR(TS_FSAR):
         self._dto_kl_value = None
         self._dto_score = None
         self._dto_task_loss = None
+        self._dto_supervised_loss = None
+        self._dto_real_labels = None
+        self.dto_response_metrics = {}
+        if self.dto_detach_teacher:
+            self.kl.register_forward_pre_hook(self._stop_kl_target)
         self.ce.register_forward_hook(self._capture_ce)
         self.kl.register_forward_hook(self._capture_kl)
         self.ts_dcm.register_forward_hook(self._capture_dcm)
+
+    @staticmethod
+    def _stop_kl_target(module, inputs):
+        return (inputs[0], inputs[1].detach())
 
     def _capture_ce(self, module, inputs, output):
         if self.training:
@@ -52,6 +64,16 @@ class DTOTSFSAR(TS_FSAR):
     def _capture_kl(self, module, inputs, output):
         if self.training:
             self._dto_kl_value = output
+            # Detached, tiny global logits only. No extra model forward or RNG.
+            with torch.no_grad():
+                for name, logits in zip(('student', 'teacher'), inputs):
+                    logs = F.log_softmax(logits.detach().float(), dim=1)
+                    probs = logs.exp()
+                    self.dto_response_metrics[name + '_entropy'] = float(-(probs * logs).sum(1).mean())
+                    self.dto_response_metrics[name + '_max_probability'] = float(probs.max(1).values.mean())
+                    if self._dto_real_labels is not None:
+                        self.dto_response_metrics[name + '_global_accuracy'] = float(
+                            (logits.argmax(1) == self._dto_real_labels).float().mean())
 
     def _capture_dcm(self, module, inputs, output):
         if self.training:
@@ -74,9 +96,13 @@ class DTOTSFSAR(TS_FSAR):
         self._dto_kl_value = None
         self._dto_score = None
         self._dto_task_loss = None
+        self._dto_supervised_loss = None
+        self._dto_real_labels = None
 
     def forward(self, images, context_labels, target_labels, real_labels=None, class_embeddings=None):
         self.clear_dto_cache()
+        self.dto_response_metrics = {}
+        self._dto_real_labels = real_labels
         output = super().forward(images, context_labels, target_labels, real_labels, class_embeddings)
         if not self.training or self.dto_mode == "off":
             return output
@@ -90,7 +116,34 @@ class DTOTSFSAR(TS_FSAR):
             + float(self.cfg.TRAIN.SIDE_CLS_ALPHA) * lsn_ce
             + base_kd * teacher_ce
         )
-        if self.dto_mode == "dynamic":
+        if self.dto_mode == 'safe_dynamic':
+            # New FSAR adaptation, not an exact reproduction of DTO-KD:
+            # all original label supervision forms ONE supervised objective.
+            supervised = base_vis * task.float() + auxiliary.float()
+            self._dto_supervised_loss = supervised
+            # Roundoff can make a mathematically nonnegative KL slightly < 0.
+            if not bool(torch.isfinite(distill.detach())) or float(distill.detach()) < -1e-6:
+                raise FloatingPointError('invalid KL in safe_dynamic')
+            positive_distill = distill.float().clamp_min(0.)
+            log_d = torch.log1p(base_kd * positive_distill)
+            log_t = torch.log1p(supervised)
+            p_dist, p_task = self.dto_controller.weights
+            coordinated = p_dist * log_d + p_task * log_t
+            state = self.dto_controller.update_from_logs(log_d, log_t)
+            sup_weight = p_task / (1. + float(supervised.detach()))
+            self.dto_last_metrics = {
+                'pi_distill': p_dist, 'pi_task': p_task,
+                'next_pi_distill': state.pi_distill, 'next_pi_task': state.pi_task,
+                'task_loss': float(task.detach()), 'distill_loss': float(distill.detach()),
+                'supervised_loss': float(supervised.detach()),
+                'task_coefficient': base_vis * sup_weight,
+                'auxiliary_coefficient': sup_weight,
+                'distill_coefficient': p_dist * base_kd / (1. + base_kd * float(positive_distill.detach()))
+                                       if float(distill.detach()) >= 0. else 0.,
+                'distill_coefficient_upper_bound': base_kd,
+                'dto_objective': state.objective,
+            }
+        elif self.dto_mode == "dynamic":
             coordinated = self.dto_controller.weighted_log_objective(distill, task)
             p_dist, p_task = self.dto_controller.weights
             state = self.dto_controller.update(distill, task)
@@ -123,7 +176,7 @@ class DTOTSFSAR(TS_FSAR):
             raise NotImplementedError("E4 is reserved and intentionally not implemented")
         else:
             raise ValueError(f"unknown DTO_KD.MODE: {self.dto_mode}")
-        output["loss"] = auxiliary + coordinated
+        output["loss"] = coordinated if self.dto_mode == 'safe_dynamic' else auxiliary + coordinated
         self.dto_step += 1
         self._append_trace()
         return output
