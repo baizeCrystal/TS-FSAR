@@ -95,16 +95,22 @@ class DTOController:
 
     def weighted_log_objective(self, distill_loss: torch.Tensor, task_loss: torch.Tensor) -> torch.Tensor:
         """Compute ``pi_distill log L_distill + pi_task log L_task``."""
-        p = self._weights().to(device=distill_loss.device, dtype=distill_loss.dtype)
-        ld = _finite_scalar(distill_loss, self.eps, detach=False).to(distill_loss.device)
-        lt = _finite_scalar(task_loss, self.eps, detach=False).to(task_loss.device)
+        ld = _finite_scalar(distill_loss, self.eps, detach=False)
+        lt = _finite_scalar(task_loss, self.eps, detach=False)
+        # _finite_scalar promotes AMP losses to FP32; keep the coefficients in
+        # that precision and on the loss device, with the model graph intact.
+        p = self._weights().to(device=ld.device, dtype=ld.dtype)
         return p[0] * torch.log(ld) + p[1] * torch.log(lt)
 
     def update(self, distill_loss: torch.Tensor, task_loss: torch.Tensor) -> DTOState:
         ld = _finite_scalar(distill_loss, self.eps)
         lt = _finite_scalar(task_loss, self.eps)
         p = self._weights()
-        logs = torch.stack([torch.log(ld), torch.log(lt)]).to(torch.float64)
+        # Controller state intentionally lives on CPU, outside model.cuda().
+        # Transfer only these two detached scalars, not either model loss graph.
+        logs = torch.stack([torch.log(ld), torch.log(lt)]).to(
+            device=self._logits.device, dtype=self._logits.dtype
+        )
         scalar = torch.dot(p, logs)
         # d/d pi 1/2 (pi dot log L)^2, followed by the softmax Jacobian.
         grad_pi = scalar * logs
@@ -139,7 +145,10 @@ class DTOController:
         self.eta = float(state["eta"])
         self.eps = float(state["eps"])
         self.logit_clip = float(state["logit_clip"])
-        self._logits = torch.as_tensor(state["logits"], dtype=torch.float64).clone()
+        # torch.load(map_location='cuda') must not move the CPU controller state.
+        self._logits = torch.as_tensor(
+            state["logits"], dtype=torch.float64, device="cpu"
+        ).detach().clone()
         self.step_index = int(state["step_index"])
 
 

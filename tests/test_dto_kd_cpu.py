@@ -39,6 +39,43 @@ class DTOControllerTest(unittest.TestCase):
         self.assertEqual(c.step_index, d.step_index)
         self.assertEqual(c.weights, d.weights)
 
+    def test_controller_update_matches_independent_autograd_reference(self):
+        eta = 0.03
+        c = DTOController(eta=eta, init_distill=0.3)
+        original = c.state_dict()["logits"]
+        reference = original.clone().requires_grad_()
+        logs = torch.stack([torch.tensor(4.0).log(), torch.tensor(0.5).log()]).double()
+        objective = 0.5 * torch.dot(reference.softmax(0), logs).square()
+        gradient, = torch.autograd.grad(objective, reference)
+        expected = original - eta * gradient
+        c.update(torch.tensor(4.0), torch.tensor(0.5))
+        torch.testing.assert_close(c.state_dict()["logits"], expected)
+
+    def test_update_is_detached_and_does_not_break_pending_backward(self):
+        c = DTOController()
+        distill = torch.tensor(4.0, requires_grad=True)
+        task = torch.tensor(0.5, requires_grad=True)
+        before = c.weights
+        objective = c.weighted_log_objective(distill, task)
+        c.update(distill, task)
+        self.assertIsNone(distill.grad)
+        self.assertIsNone(task.grad)
+        self.assertFalse(c.state_dict()["logits"].requires_grad)
+        objective.backward()
+        self.assertAlmostEqual(distill.grad.item(), before[0] / 4.0, places=6)
+        self.assertAlmostEqual(task.grad.item(), before[1] / 0.5, places=6)
+
+    def test_half_losses_keep_objective_fp32(self):
+        c = DTOController()
+        distill = torch.tensor(2.0, dtype=torch.float16, requires_grad=True)
+        task = torch.tensor(0.5, dtype=torch.float16, requires_grad=True)
+        objective = c.weighted_log_objective(distill, task)
+        self.assertEqual(objective.dtype, torch.float32)
+        c.update(distill, task)
+        objective.backward()
+        self.assertTrue(torch.isfinite(distill.grad))
+        self.assertTrue(torch.isfinite(task.grad))
+
     def test_gradient_metrics_boundary(self):
         m = gradient_metrics(torch.tensor([1.0, 0.0]), torch.tensor([-1.0, 0.0]))
         self.assertEqual(m["conflict"], 1.0)

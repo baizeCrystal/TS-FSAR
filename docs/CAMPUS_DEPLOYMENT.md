@@ -144,6 +144,8 @@ E1 的 `model_best.pth` 是安全保存的模型权重；从最近 best 继续�
 
 ```bash
 python -m unittest tests.test_dto_kd_cpu tests.test_campus_execution_cpu -v
+# 先用小张量检查控制器跨设备更新、AMP 和状态恢复；不加载 CLIP/PCA/视频。
+TSFSAR_RUN_CUDA_TESTS=1 CUDA_VISIBLE_DEVICES=0 python -m unittest tests.test_dto_kd_cuda -v
 bash scripts/run_campus_experiment.sh --experiment E1 --shot 1 --gpu 0 --smoke --output runs/campus/smoke/E1_1shot
 bash scripts/run_campus_experiment.sh --experiment E1 --shot 5 --gpu 0 --smoke --output runs/campus/smoke/E1_5shot
 ```
@@ -195,3 +197,16 @@ Meta-Val 选择候选，队列不读取或比较最终 Test 准确率。
 自己启动的进程组发送终止信号，未实现完整优化器断点恢复，不要将终止
 后从头启动称为恢复训练。`nohup` 只能防止终端断开导致的 SIGHUP，
 平台作业到期、容器销毁或资源回收仍会停止任务。
+
+### 控制器 CPU / CUDA 边界
+
+`DTOController` 不是 `nn.Module`，其两个 FP64 logit 留在 CPU，不会被
+`model.cuda()` 搬运。模型的加权 log-loss 在损失所在 GPU 上用 FP32
+计算，保持反向图。控制器更新只将两个 detached log-loss 标量搬到
+控制器设备后做点积，防止 `torch.dot` 混用 CPU 权重和 CUDA 损失。
+状态恢复也将控制器 logit 固定回 CPU，包括从 `map_location='cuda'`
+读取的 checkpoint。这个修复不改变权重更新公式或优化目标。
+
+原服务器仅执行 CPU 测试；`tests.test_dto_kd_cuda` 默认跳过，仅在校园
+已分配 GPU 上设置 `TSFSAR_RUN_CUDA_TESTS=1` 后执行。请先确认这三个
+小张量 CUDA 测试全部通过，再运行较慢的模型短检查。
