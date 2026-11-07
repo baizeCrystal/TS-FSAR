@@ -3,8 +3,9 @@
 DTO-KD uses gradients of log losses and chooses simplex weights by minimising
 the squared norm of their convex combination.  The exact closed form is used
 when both gradients are available (``closed_form_weights``).  The training
-adapter uses the paper's amortized update, Eq. (18), so a batch needs one
-backward pass rather than two.
+adapter needs one backward pass rather than two. ``paper_pi_softmax`` follows
+the direct probability update in Eq.18; ``legacy_logits`` preserves the old
+softmax-logit adapter (not numerically equivalent to Eq.18).
 """
 
 from __future__ import annotations
@@ -62,8 +63,8 @@ class DTOController:
 
     ``weights`` are used for the current batch.  ``update`` applies Eq. (18)
     to produce weights for the next batch.  The controller is deliberately
-    outside the model optimizer, so its state is saved explicitly in a
-    checkpoint sidecar and does not add trainable model parameters.
+    outside the model optimizer. Protocol v2 saves it explicitly inside the
+    full resume checkpoint; it does not add trainable model parameters.
     """
 
     def __init__(
@@ -72,12 +73,17 @@ class DTOController:
         init_distill: float = 0.5,
         eps: float = 1e-8,
         logit_clip: float = 20.0,
+        update_rule: str = "legacy_logits",
     ) -> None:
         if eta < 0 or eps <= 0 or init_distill <= 0 or init_distill >= 1:
             raise ValueError("invalid DTO-KD controller hyperparameters")
         self.eta = float(eta)
         self.eps = float(eps)
         self.logit_clip = float(logit_clip)
+        if update_rule not in ("legacy_logits", "paper_pi_softmax"):
+            raise ValueError("unknown DTO update rule: " + update_rule)
+        self.update_rule = update_rule
+        self._probabilities = torch.tensor([init_distill, 1.0 - init_distill], dtype=torch.float64)
         self._logits = torch.tensor(
             [torch.log(torch.tensor(init_distill / (1.0 - init_distill))), 0.0],
             dtype=torch.float64,
@@ -86,6 +92,8 @@ class DTOController:
         self.history = []
 
     def _weights(self) -> torch.Tensor:
+        if self.update_rule == "paper_pi_softmax":
+            return self._probabilities
         return torch.softmax(self._logits.clamp(-self.logit_clip, self.logit_clip), dim=0)
 
     @property
@@ -115,7 +123,11 @@ class DTOController:
         # d/d pi 1/2 (pi dot log L)^2, followed by the softmax Jacobian.
         grad_pi = scalar * logs
         grad_logits = p * (grad_pi - torch.dot(p, grad_pi))
-        if self.eta:
+        if self.update_rule == "paper_pi_softmax":
+            # Eq.18 updates pi directly; the paper then specifies softmax
+            # normalization. No softmax Jacobian or logit clipping is applied.
+            self._probabilities = torch.softmax(p - self.eta * grad_pi, dim=0)
+        elif self.eta:
             self._logits = (self._logits - self.eta * grad_logits).clamp(
                 -self.logit_clip, self.logit_clip
             )
@@ -139,12 +151,18 @@ class DTOController:
             "logit_clip": self.logit_clip,
             "logits": self._logits.clone(),
             "step_index": self.step_index,
+            "update_rule": self.update_rule,
+            "probabilities": self._probabilities.clone(),
         }
 
     def load_state_dict(self, state: Mapping[str, object]) -> None:
         self.eta = float(state["eta"])
         self.eps = float(state["eps"])
         self.logit_clip = float(state["logit_clip"])
+        self.update_rule = str(state.get("update_rule", "legacy_logits"))
+        self._probabilities = torch.as_tensor(
+            state.get("probabilities", [0.5, 0.5]), dtype=torch.float64, device="cpu"
+        ).detach().clone()
         # torch.load(map_location='cuda') must not move the CPU controller state.
         self._logits = torch.as_tensor(
             state["logits"], dtype=torch.float64, device="cpu"
@@ -161,7 +179,9 @@ def flatten_gradients(parameters: Iterable[torch.nn.Parameter]) -> torch.Tensor:
 
 def gradient_metrics(grad_dist: torch.Tensor, grad_task: torch.Tensor, eps: float = 1e-12) -> Dict[str, float]:
     """Return conflict, projection, and dominance metrics used in reports."""
-    a, b = grad_dist.float().reshape(-1), grad_task.float().reshape(-1)
+    # Diagnostics use FP64 reductions to avoid overflow in large flattened
+    # vectors; this never changes the model's training gradient dtype.
+    a, b = grad_dist.double().reshape(-1), grad_task.double().reshape(-1)
     na, nb = a.norm(), b.norm()
     dot = torch.dot(a, b)
     cosine = dot / (na * nb).clamp_min(eps)

@@ -23,15 +23,26 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def build_jobs(shots, seed, output_root, skip):
+def build_jobs(shots, seed, output_root, skip, protocol='legacy'):
     jobs = []
     for experiment, alpha in [("E0", None), ("E1", None),
                               ("E2", "0.05"), ("E2", "0.1"), ("E2", "0.2")]:
         for shot in shots:
-            name = f"{experiment}_{shot}shot" + (f"_kl{alpha}" if alpha else "")
+            if protocol == 'v2' and experiment == 'E2':
+                # Center = E0 (identical objective certified separately), so
+                # only half/double the released KL coefficient needs training.
+                if alpha == '0.1':
+                    continue
+                if shot == 5:
+                    alpha_for_shot = {'0.05': '0.005', '0.2': '0.02'}[alpha]
+                else:
+                    alpha_for_shot = alpha
+            else:
+                alpha_for_shot = alpha
+            name = f"{experiment}_{shot}shot" + (f"_kl{alpha_for_shot}" if alpha_for_shot else "")
             if name in skip:
                 continue
-            suffix = f"_static_kl_{alpha}" if alpha else ""
+            suffix = f"_static_kl_{alpha_for_shot}" if alpha_for_shot else ""
             cfg = ROOT / f"configs/dto_kd/ssv2_small_{shot}shot_{experiment}{suffix}.yaml"
             if not cfg.is_file():
                 raise ValueError(f"missing config: {cfg}")
@@ -44,11 +55,15 @@ def build_jobs(shots, seed, output_root, skip):
 
 
 def job_command(job, gpu):
-    return ["bash", str(ROOT / "scripts/run_campus_experiment.sh"),
+    command = ["bash", str(ROOT / "scripts/run_campus_experiment.sh"),
             "--experiment", job["experiment"], "--shot", str(job["shot"]),
             "--seed", str(job["seed"]), "--gpu", str(gpu),
             "--config", job["config"], "--output", job["output"],
             "--activation-offload", job.get("activation_offload", "diagnostics")]
+    command += ['--protocol', job.get('protocol', 'legacy')]
+    if job.get('protocol') == 'v2':
+        command += ['--acceptance-report', job['acceptance_report']]
+    return command
 
 
 def save_status(path, jobs):
@@ -127,7 +142,7 @@ def run_queue(jobs, gpus, status_path, launch_delay=20.0, cpu_threads=2, poll=1.
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--gpus", default="0,1,2,3,4,5,6,7", help="only use GPUs allocated to this job")
+    p.add_argument("--gpus", default="0,1,2,3,4,5,6", help="only use GPUs allocated to this job; GPU 7 excluded after reported ECC errors")
     p.add_argument("--shots", default="1,5")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output-root", default="runs/campus/parallel_seed0")
@@ -136,6 +151,10 @@ def main():
     p.add_argument("--cpu-threads", type=int, default=2)
     p.add_argument("--activation-offload", choices=("off", "diagnostics", "all"), default="diagnostics")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument('--protocol', choices=('legacy', 'v2'), default='v2')
+    p.add_argument('--experiments', default='E0,E1,E2', help='E0 only for a baseline-first queue')
+    p.add_argument('--acceptance-1shot', type=Path)
+    p.add_argument('--acceptance-5shot', type=Path)
     a = p.parse_args()
     try:
         gpus = [int(x) for x in a.gpus.split(",")]
@@ -149,13 +168,23 @@ def main():
     if a.cpu_threads < 1 or a.launch_delay < 0:
         p.error("cpu-threads must be positive; launch-delay must be nonnegative")
     out = Path(a.output_root).resolve()
-    all_jobs = build_jobs(shots, a.seed, out, set())
+    all_jobs = build_jobs(shots, a.seed, out, set(), a.protocol)
     skip = set(filter(None, a.skip.split(",")))
     if not skip <= {j["name"] for j in all_jobs}:
         p.error("unknown skipped job: " + ", ".join(sorted(skip - {j["name"] for j in all_jobs})))
-    jobs = build_jobs(shots, a.seed, out, skip)
+    jobs = build_jobs(shots, a.seed, out, skip, a.protocol)
+    experiments = set(a.experiments.split(','))
+    if not experiments or not experiments <= {'E0', 'E1', 'E2'}:
+        p.error('--experiments must select from E0,E1,E2')
+    jobs = [job for job in jobs if job['experiment'] in experiments]
     for job in jobs:
         job["activation_offload"] = a.activation_offload
+        job['protocol'] = a.protocol
+        if a.protocol == 'v2':
+            certificate = getattr(a, f'acceptance_{job["shot"]}shot')
+            if certificate is None or not certificate.is_file():
+                p.error(f'v2 requires --acceptance-{job["shot"]}shot pointing to a passed campus report')
+            job.update(protocol='v2', acceptance_report=str(certificate.resolve()))
     if not jobs:
         p.error("no jobs remain")
     print(f"{len(jobs)} independent jobs, at most {len(gpus)} simultaneous; E3 requires separate calibration.", flush=True)

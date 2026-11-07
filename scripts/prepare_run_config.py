@@ -73,6 +73,9 @@ def main():
     p.add_argument('--checkpoint')
     p.add_argument('--activation-offload', choices=('off', 'diagnostics', 'all'), default='diagnostics')
     p.add_argument('--smoke', action='store_true', help='three train/two validation episodes; not formal results')
+    p.add_argument('--protocol', choices=('legacy', 'v2'), default='legacy')
+    p.add_argument('--acceptance-report', help='passed full-model campus CUDA certificate for this shot/seed')
+    p.add_argument('--resume', help='protocol-v2 complete resume_latest.pth, not model_best.pth')
     a = p.parse_args()
     c = yaml.safe_load(Path(a.config).read_text())
     if a.seed is not None:
@@ -87,6 +90,22 @@ def main():
         c['LOG_PERIOD'] = 1
         c.setdefault('DTO_KD', {})['GRADIENT_SAMPLE_INTERVAL'] = 2
     c.setdefault('DTO_KD', {})['ACTIVATION_OFFLOAD'] = a.activation_offload
+    if a.protocol == 'v2':
+        if a.mode == 'train' and not a.smoke and not a.acceptance_report:
+            raise SystemExit('protocol v2 training requires --acceptance-report from campus_acceptance.py')
+        if a.acceptance_report and not Path(a.acceptance_report).is_file():
+            raise SystemExit('--acceptance-report must be an existing passed campus report')
+        if a.acceptance_report and json.loads(Path(a.acceptance_report).read_text()).get('passed') is not True:
+            raise SystemExit('campus acceptance did not pass; formal training refused')
+        if a.resume and (a.mode != 'train' or not Path(a.resume).is_file()):
+            raise SystemExit('--resume requires train mode and an existing complete v2 checkpoint')
+        c['DTO_KD']['UPDATE_RULE'] = 'paper_pi_softmax'
+        c['DTO_KD'].update(GRADIENT_EARLY_STEPS=500, GRADIENT_EARLY_INTERVAL=25)
+        c['RIGOROUS'] = {'VERSION': 2, 'SMOKE': a.smoke,
+                         'ACCEPTANCE_REPORT': str(Path(a.acceptance_report).resolve()) if a.acceptance_report else '',
+                         'RESUME': str(Path(a.resume).resolve()) if a.resume else ''}
+    elif a.resume or a.acceptance_report:
+        raise SystemExit('--resume/--acceptance-report require --protocol v2')
     c['TRAIN']['ENABLE'] = a.mode == 'train'
     c['TEST']['ENABLE'] = a.mode == 'eval'
     if a.mode == 'eval':

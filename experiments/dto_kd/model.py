@@ -31,6 +31,7 @@ class DTOTSFSAR(TS_FSAR):
             init_distill=float(getattr(dto, "INIT_DISTILL_WEIGHT", 0.5)),
             eps=float(getattr(dto, "EPS", 1e-8)),
             logit_clip=float(getattr(dto, "LOGIT_CLIP", 20.0)),
+            update_rule=str(getattr(dto, "UPDATE_RULE", "legacy_logits")),
         ) if self.dto_mode == "dynamic" else None
         self.dto_static_kl_alpha = float(getattr(dto, "STATIC_KL_ALPHA", cfg.TRAIN.KD_ALPHA)) if dto is not None else float(cfg.TRAIN.KD_ALPHA)
         self.dto_trace_interval = int(getattr(dto, "TRACE_INTERVAL", 100)) if dto is not None else 0

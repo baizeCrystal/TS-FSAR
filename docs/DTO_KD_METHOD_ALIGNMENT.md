@@ -1,5 +1,7 @@
 # DTO-KD 方法对齐说明
 
+版本说明：下面对旧 softmax-logit 实现的审计截至 `b811c04`。新 **protocol v2** 明确使用 `UPDATE_RULE=paper_pi_softmax`，直接按 `π_next=softmax(π-η*(π·log L)*log L)` 更新，无 logit Jacobian/clipping；旧实现保留为 `legacy_logits` 用于追溯。直接公式通过独立手算数值测试和状态恢复测试。两者不是同一个算法版本，不能接续同一训练；v2 仍因可训练教师和保留辅助 CE 而属于 FSAR 适配，不能声称复现作者完整系统或获得其方向保证。完整新协议与 CUDA 验收见 [严谨重启手册](RIGOROUS_RESTART.md)。
+
 论文：Zeeshan Hayder 等，**DTO-KD: Dynamic Trade-off Optimization for Effective Knowledge Distillation**, ICLR 2026。正式论文：[proceedings.iclr.cc](https://proceedings.iclr.cc/paper_files/paper/2026/file/e546ce4230c15bc422a500bb47b341ea-Paper-Conference.pdf)。
 
 ## 公式与代码

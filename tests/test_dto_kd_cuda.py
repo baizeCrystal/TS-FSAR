@@ -20,9 +20,9 @@ class DTOControllerCudaTest(unittest.TestCase):
         if not torch.cuda.is_available():
             self.fail("CUDA checks requested, but CUDA is unavailable")
 
-    def check_loss_dtype(self, dtype):
-        controller = DTOController(eta=0.03)
-        reference = DTOController(eta=0.03)
+    def check_loss_dtype(self, dtype, update_rule='legacy_logits'):
+        controller = DTOController(eta=0.03, update_rule=update_rule)
+        reference = DTOController(eta=0.03, update_rule=update_rule)
         for d, t in ((4.0, 0.5), (0.25, 2.0), (1.5, 0.75)):
             distill = torch.tensor(d, device="cuda", dtype=dtype, requires_grad=True)
             task = torch.tensor(t, device="cuda", dtype=dtype, requires_grad=True)
@@ -50,6 +50,10 @@ class DTOControllerCudaTest(unittest.TestCase):
 
     def test_cuda_losses_cpu_controller_amp_half(self):
         self.check_loss_dtype(torch.float16)
+
+    def test_paper_probability_update_with_cuda_losses(self):
+        self.check_loss_dtype(torch.float32, update_rule='paper_pi_softmax')
+        self.check_loss_dtype(torch.float16, update_rule='paper_pi_softmax')
 
     def test_checkpoint_loaded_onto_cuda_restores_cpu_controller(self):
         source = DTOController(eta=0.03)

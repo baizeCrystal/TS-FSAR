@@ -56,6 +56,8 @@ def compare_config(path, generated=False):
              'TEST.USE_TEXT', 'TEST.FUSE_CLIP', 'TEST.FUSE_VISION', 'TEST.FUSE_SIDE'}
     # These were added for deployment, not part of the released sampling recipe.
     keys -= {'DATA.DECODE_THREADS', 'DATA.FAIL_ON_DECODE_ERROR'}
+    if generated and not cfg['TRAIN']['ENABLE']:
+        keys.discard('TRAIN.ENABLE')
     differences = {key: {'released': reference.get(key), 'actual': actual.get(key)}
                    for key in sorted(keys) if reference.get(key) != actual.get(key)}
     checks = {}
@@ -97,6 +99,8 @@ def compare_config(path, generated=False):
             protocol is not None and protocol.get('current_evaluation_split') == split
             and protocol.get('checkpoint_selection_split') == 'Meta-Val')
     return {'config': str(path.resolve()), 'shot': shot, 'dto_mode': dto.get('MODE', 'off'),
+            'protocol_version': cfg.get('RIGOROUS', {}).get('VERSION', 'legacy'),
+            'controller_update': dto.get('UPDATE_RULE', 'legacy_logits'),
             'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'released_recipe_differences': differences, 'checks': checks,
             'configuration_checks_pass': not differences and all(checks.values()),
@@ -119,11 +123,11 @@ def main():
         'scope': 'CPU/files only; configuration checks do not certify experiment validity',
         'limitations': [
             'Meta-Val checkpoint selection differs from historical Test-best selection.',
-            'E1 uses softmax-logit optimization; this is an adaptation of paper Eq.18.',
-            'No real-model CUDA baseline/adapter one-step equivalence certification.',
-            'Current runs do not save actual episode sequences or per-branch predictions.',
-            'Current gradient CSVs cover raw all-trainable-parameter gradients only.',
-            'Current model_best.pth does not provide a full optimizer/AMP/RNG/controller resume.',
+            'legacy_logits is not the direct Eq.18 update; protocol v2 uses paper_pi_softmax.',
+            'Configuration checks do not certify full-model CUDA numerics or final accuracy.',
+            'Pair actual episode/input hashes and evaluation protocol before a paired analysis.',
+            'Inspect weighted parameter-group probes and effective AMP updates in protocol v2.',
+            'Full CUDA resume equivalence remains unverified; model_best is not a full resume file.',
         ],
         'configurations': results,
     }

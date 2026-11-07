@@ -1,5 +1,7 @@
 # TS-FSAR: Task-Specific Distance Correlation Matching for Few-Shot Action Recognition
 
+校园 DTO 实验正式重启使用 [protocol v2 手册](docs/RIGOROUS_RESTART.md)：先停止旧队列、核对基础配方，再执行校园完整模型 CUDA 验收；通过后才运行同初始化/同 Episode 的 E0/E1/E2。旧 softmax-logit 试验与新直接权重更新版本分别保留，不混用结果。
+
 <p align="center">
   <img src="./assets/framework.svg" width="95%"/>
 </p>

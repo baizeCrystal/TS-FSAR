@@ -12,6 +12,9 @@ out=''
 checkpoint=''
 config=''
 smoke=false
+protocol=v2
+acceptance_report=''
+resume=''
 activation_offload="${TSFSAR_ACTIVATION_OFFLOAD:-diagnostics}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +27,9 @@ while [[ $# -gt 0 ]]; do
     --checkpoint) checkpoint="$2"; shift 2 ;;
     --config) config="$2"; shift 2 ;;
     --smoke) smoke=true; shift ;;
+    --protocol) protocol="$2"; shift 2 ;;
+    --acceptance-report) acceptance_report="$2"; shift 2 ;;
+    --resume) resume="$2"; shift 2 ;;
     --activation-offload) activation_offload="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -32,6 +38,7 @@ case "$experiment" in E0|E1|E2|E3) ;; *) echo 'experiment must be E0/E1/E2/E3' >
 case "$shot" in 1|5) ;; *) echo 'shot must be 1 or 5' >&2; exit 2 ;; esac
 case "$mode" in train|eval) ;; *) echo 'mode must be train or eval' >&2; exit 2 ;; esac
 case "$activation_offload" in off|diagnostics|all) ;; *) echo 'activation-offload must be off/diagnostics/all' >&2; exit 2 ;; esac
+case "$protocol" in legacy|v2) ;; *) echo 'protocol must be legacy/v2' >&2; exit 2 ;; esac
 [[ "$gpu" =~ ^[0-9]+$ ]] || { echo '--gpu must name one allocated GPU index' >&2; exit 2; }
 if [[ "$experiment" == E2 && -z "$config" ]]; then
   echo '--config is required for E2 (choose 0.05, 0.1, or 0.2)' >&2
@@ -83,9 +90,21 @@ echo "[$(date -Is)] START experiment=$experiment shot=$shot gpu=$gpu seed=$seed 
 echo "python=$(command -v python) CPU_THREADS=$threads runtime_TMPDIR=$TMPDIR"
 echo "config=$cfg output=$out console=$console"
 echo "activation_offload=$activation_offload (CPU RAM required when enabled)"
+echo "protocol=$protocol acceptance_report=$acceptance_report resume=$resume"
 echo 'LSN training initialization performs CPU PCA before GPU episode processing.'
 
 args=(--config "$cfg" --output "$tmp" --seed "$seed" --output-dir "$out" --mode "$mode" --activation-offload "$activation_offload")
+args+=(--protocol "$protocol")
+if [[ -n "$acceptance_report" ]]; then args+=(--acceptance-report "$acceptance_report"); fi
+if [[ -n "$resume" ]]; then args+=(--resume "$resume"); fi
+if [[ "$protocol" == v2 ]]; then
+  ecc="$(nvidia-smi -i "$gpu" --query-gpu=ecc.errors.uncorrected.volatile.total --format=csv,noheader,nounits)"
+  [[ "$ecc" =~ ^0$ ]] || { echo "GPU $gpu has unverified/nonzero ECC: $ecc" >&2; exit 1; }
+  if [[ "$mode" == train && -z "$resume" && ( -e "$out/config.yaml" || -e "$out/protocol_v2.json" || -e "$out/model_best.pth" ) ]]; then
+    echo 'Existing v2 run: use explicit --resume or a fresh --output' >&2
+    exit 1
+  fi
+fi
 if [[ "$smoke" == true ]]; then
   echo 'SMOKE CHECK ONLY: 3 train episodes, 2 validation episodes, diagnostic on step 2.'
   args+=(--smoke)
@@ -93,4 +112,7 @@ fi
 if [[ "$mode" == eval ]]; then args+=(--checkpoint "$checkpoint"); fi
 python -u scripts/prepare_run_config.py "${args[@]}"
 export CUDA_VISIBLE_DEVICES="$gpu"
+if [[ "$protocol" == v2 ]]; then
+  exec python -u -m experiments.dto_kd.rigorous --cfg "$tmp"
+fi
 exec python -u -m experiments.dto_kd.entry --cfg "$tmp"

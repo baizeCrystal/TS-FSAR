@@ -214,6 +214,9 @@ class Video_few_shot(BaseVideoDataset):
             t = list(zip(target_set, target_labels, real_target_labels))
             random.shuffle(t)
             target_set, target_labels, real_target_labels = zip(*t)
+            observer = getattr(self, "episode_order_observer", None)
+            if observer is not None:
+                observer(s, t)
             support_set = torch.cat(support_set)  
             target_set = torch.cat(target_set)    
             support_labels = torch.FloatTensor(support_labels)
