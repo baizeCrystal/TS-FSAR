@@ -1,0 +1,272 @@
+{
+  "code_commit": "62d6f01cb7d7a18e7c6ed93e7c090aa06f5eec38",
+  "scope": "CPU/files only; configuration checks do not certify experiment validity",
+  "limitations": [
+    "Meta-Val checkpoint selection differs from historical Test-best selection.",
+    "E1 uses softmax-logit optimization; this is an adaptation of paper Eq.18.",
+    "No real-model CUDA baseline/adapter one-step equivalence certification.",
+    "Current runs do not save actual episode sequences or per-branch predictions.",
+    "Current gradient CSVs cover raw all-trainable-parameter gradients only.",
+    "Current model_best.pth does not provide a full optimizer/AMP/RNG/controller resume."
+  ],
+  "configurations": [
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E0.yaml",
+      "shot": 1,
+      "dto_mode": "off",
+      "sha256": "1517a3f2146068f9cc65bb2a899a1308f9bb30716d11adbf0e116bebcc156c63",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E1.yaml",
+      "shot": 1,
+      "dto_mode": "dynamic",
+      "sha256": "2bffe3cc84db498af4cfb9c7835872b8a22bc2d32017d0608178e65159ed78cb",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E2_static_kl_0.05.yaml",
+      "shot": 1,
+      "dto_mode": "static_kl",
+      "sha256": "6876105ae6710f2668771b267c5437458a60fe451fbea686cd996de88bc2b2e7",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E2_static_kl_0.1.yaml",
+      "shot": 1,
+      "dto_mode": "static_kl",
+      "sha256": "4270a7b6e004e8afb229ec1f92bc016c1b4df6d9b500f83fe6d357d457428f00",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E2_static_kl_0.2.yaml",
+      "shot": 1,
+      "dto_mode": "static_kl",
+      "sha256": "1fb62643dd3d860dee294119823861309dc8cfb9e5803d44bbc1b350118d6638",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E3.yaml",
+      "shot": 1,
+      "dto_mode": "scale_matched",
+      "sha256": "6c663810692324e420228c20e733e69348232927d05b933c7760cfdd7c027319",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E0.yaml",
+      "shot": 5,
+      "dto_mode": "off",
+      "sha256": "3bd60258b00c24974770a77f9ae7d4ff0c7c6d9c44adad27dec72916da7beaa4",
+      "released_recipe_differences": {
+        "SOLVER.GENERATOR_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSNHEAD_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSN_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        }
+      },
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": false,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E1.yaml",
+      "shot": 5,
+      "dto_mode": "dynamic",
+      "sha256": "104fcac5c49da0ba9892ddfbb4824f543cb0ec72793dc08596c6ce45756ccd48",
+      "released_recipe_differences": {
+        "SOLVER.GENERATOR_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSNHEAD_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSN_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        }
+      },
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": false,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E2_static_kl_0.05.yaml",
+      "shot": 5,
+      "dto_mode": "static_kl",
+      "sha256": "378583a6fefa9feda1bed738d1f2e91869017ec51b7135140ed909dad805d5e8",
+      "released_recipe_differences": {
+        "SOLVER.GENERATOR_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSNHEAD_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSN_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        }
+      },
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": false,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E2_static_kl_0.1.yaml",
+      "shot": 5,
+      "dto_mode": "static_kl",
+      "sha256": "07402cfcad058e541d9aae54b895300c91a2d138ef4af9ff2a5f77c55121e72b",
+      "released_recipe_differences": {
+        "SOLVER.GENERATOR_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSNHEAD_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSN_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        }
+      },
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": false,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E2_static_kl_0.2.yaml",
+      "shot": 5,
+      "dto_mode": "static_kl",
+      "sha256": "1f48e151a82f12e33678833c181f0a5110b0e1fda823942eaacebc7bf26e2575",
+      "released_recipe_differences": {
+        "SOLVER.GENERATOR_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSNHEAD_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSN_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        }
+      },
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": false,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E3.yaml",
+      "shot": 5,
+      "dto_mode": "scale_matched",
+      "sha256": "fb989cdf1da4ebb411fae99a1cc0e105ebd5863ae57a9f7cdb528c32e3826e93",
+      "released_recipe_differences": {
+        "SOLVER.GENERATOR_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSNHEAD_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        },
+        "SOLVER.LSN_LR": {
+          "released": 0.0003,
+          "actual": 0.00025
+        }
+      },
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": false,
+      "protocol": null
+    }
+  ]
+}

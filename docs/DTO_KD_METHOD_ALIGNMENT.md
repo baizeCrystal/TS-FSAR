@@ -15,7 +15,9 @@
 实现位置：`experiments/dto_kd/controller.py::closed_form_weights`。它对退化分母做 0.5/0.5 回退，并将结果裁剪到 simplex；CPU 单元测试覆盖共线和冲突梯度。
 
 论文的实际训练建议是 amortized update（Eq. 18）：以当前 `π` 计算
-`0.5 (π_distill log L_distill + π_task log L_task)^2` 的权重梯度，再经 softmax 保持 simplex。实现位置：`DTOController.update`。TS-FSAR 的 E1 使用一次反向传播的近似：模型反向使用 `π_distill log KL + π_task log CE_DCM`，控制器用 detached loss 更新下一 episode 的权重。这样没有把普通 KL 调系数、PCGrad 或 GradNorm 冒充 DTO-KD。
+`0.5 (π_distill log L_distill + π_task log L_task)^2` 对权重的梯度，更新 `π`，再经 softmax 保持 simplex。当前 E1 在 `DTOController.update` 中采用 **softmax-logit 参数化的适配**：令 `π=softmax(u)`，对 `u` 求导并更新 `u`，包含 softmax Jacobian。因此它与论文文字所述的直接 `π` 更新再 softmax **不完全相同**，不能声称 Eq.18 逐步严格复现，也没有作者代码逐行一致性验证。模型反向使用 `π_distill log KL + π_task log CE_DCM`，控制器用 detached loss 更新下一 episode 的权重。
+
+具体而言，令 `s=π·log L`，论文文字更新为 `π_next=softmax(π-η*s*log L)`；当前实现为 `u_next=clip(u-η*(diag(π)-ππᵀ)*(s*log L))`，随后 `π_next=softmax(u_next)`。两者的数值路径不同。既有 CPU 控制器测试验证的是后者的实现自洽性，不是前者的一致性。2026-11-07 已重新读取正式 PDF 第 7 页的算法与 Eq.18 确认这一差异；未在运行中的实验里切换控制器。
 
 论文中的 Gradient Conflict 是 `<g_distill,g_task><0`；Gradient Dominance 由 `||g_distill||/||g_task||` 描述。`experiments/dto_kd/controller.py::gradient_metrics` 和 `gradient_utils.py` 记录余弦、负冲突比例、投影和范数比。训练每 `DTO_KD.GRADIENT_SAMPLE_INTERVAL` 个 episode 才额外调用 `autograd.grad`，不会替代正常 AMP backward。
 
@@ -32,6 +34,6 @@
 
 ## 与论文的差异和边界
 
-论文的示例模型有单独的任务/蒸馏 head、冻结教师和完整双梯度闭式求解。TS-FSAR 的 GLAC 教师 Adapter 默认可训练，且还有三个辅助 CE；因此本实现是**忠实的 amortized DTO-KD 适配版**，不是论文图像分类/检测代码的逐行复现。它没有改变 TS-FSAR 的蒸馏对象、网络结构、episode 采样和推理融合。闭式解仅作为独立诊断工具，E1 训练使用论文 Eq. 18 的单反向近似。
+论文的示例模型有单独的任务/蒸馏 head、冻结教师，并讨论双梯度闭式求解及单反向近似。TS-FSAR 的 GLAC 教师 Adapter 默认可训练，且还有三个辅助 CE；当前实现应标为 **DTO-KD-inspired softmax-logit 适配版**，不是论文算法的严格复现。它没有改变 TS-FSAR 的蒸馏对象和网络结构。闭式解仅作为独立工具，E1 训练使用上述单反向适配。额外辅助损失、可训练教师和近似求解也意味着不能直接套用论文关于最优方向的理论保证。
 
-尚未在本机 GPU 或校园 GPU 上验证 CUDA 训练、显存开销和最终准确率；CPU 测试只覆盖公式、数值稳定性、状态恢复和梯度传播。
+校园平台已由用户确认 E1 两种 shot 的三步 smoke 通过，不能等同完整训练或全模型 CUDA 一步一致性认证。本机只运行 CPU 合成测试。当前梯度 CSV 仅含全体可训练参数的原始梯度范数、余弦和投影；尚未记录共享 LSN 分组、实际加权梯度、完整辅助梯度或裁剪前后指标。完整优化器/AMP/RNG/控制器断点恢复、真实 episode 序列哈希、各推理分支逐 episode 预测记录也尚未实现。详见 `audits/CAMPUS_PROTOCOL_AUDIT_20261107.md`。

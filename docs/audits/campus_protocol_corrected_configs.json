@@ -1,0 +1,194 @@
+{
+  "code_commit": "62d6f01cb7d7a18e7c6ed93e7c090aa06f5eec38",
+  "scope": "CPU/files only; configuration checks do not certify experiment validity",
+  "limitations": [
+    "Meta-Val checkpoint selection differs from historical Test-best selection.",
+    "E1 uses softmax-logit optimization; this is an adaptation of paper Eq.18.",
+    "No real-model CUDA baseline/adapter one-step equivalence certification.",
+    "Current runs do not save actual episode sequences or per-branch predictions.",
+    "Current gradient CSVs cover raw all-trainable-parameter gradients only.",
+    "Current model_best.pth does not provide a full optimizer/AMP/RNG/controller resume."
+  ],
+  "configurations": [
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E0.yaml",
+      "shot": 1,
+      "dto_mode": "off",
+      "sha256": "1517a3f2146068f9cc65bb2a899a1308f9bb30716d11adbf0e116bebcc156c63",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E1.yaml",
+      "shot": 1,
+      "dto_mode": "dynamic",
+      "sha256": "2bffe3cc84db498af4cfb9c7835872b8a22bc2d32017d0608178e65159ed78cb",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E2_static_kl_0.05.yaml",
+      "shot": 1,
+      "dto_mode": "static_kl",
+      "sha256": "6876105ae6710f2668771b267c5437458a60fe451fbea686cd996de88bc2b2e7",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E2_static_kl_0.1.yaml",
+      "shot": 1,
+      "dto_mode": "static_kl",
+      "sha256": "4270a7b6e004e8afb229ec1f92bc016c1b4df6d9b500f83fe6d357d457428f00",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E2_static_kl_0.2.yaml",
+      "shot": 1,
+      "dto_mode": "static_kl",
+      "sha256": "1fb62643dd3d860dee294119823861309dc8cfb9e5803d44bbc1b350118d6638",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_1shot_E3.yaml",
+      "shot": 1,
+      "dto_mode": "scale_matched",
+      "sha256": "6c663810692324e420228c20e733e69348232927d05b933c7760cfdd7c027319",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E0.yaml",
+      "shot": 5,
+      "dto_mode": "off",
+      "sha256": "75ea32d62dcb30007a8a89fbbbc081661441b82e661651e52026a352b67bf2a0",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E1.yaml",
+      "shot": 5,
+      "dto_mode": "dynamic",
+      "sha256": "ae2230ccb8b6e17fc6aabe1bacff7087781652e77b34d05df61a8f2c3da811f0",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E2_static_kl_0.05.yaml",
+      "shot": 5,
+      "dto_mode": "static_kl",
+      "sha256": "9399f2b7c825346400aa2c1df83d0e920f1fe4931fd0ae458f9f060604a6ba5c",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E2_static_kl_0.1.yaml",
+      "shot": 5,
+      "dto_mode": "static_kl",
+      "sha256": "9aebe90c1f2c08573bc9a52bfab078e0910c26dc214d9e995b72480e3808e933",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E2_static_kl_0.2.yaml",
+      "shot": 5,
+      "dto_mode": "static_kl",
+      "sha256": "e9c78caf80eaabdb863bbbf3d7b4a650daa1f3eccf82e2534a38917a6787ff22",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    },
+    {
+      "config": "/home/zyb/TS-FSAR-dto/configs/dto_kd/ssv2_small_5shot_E3.yaml",
+      "shot": 5,
+      "dto_mode": "scale_matched",
+      "sha256": "70a615e33d14eaf258dce84a400d6844eb763cf6b8be991ad0c9386ff711d8f6",
+      "released_recipe_differences": {},
+      "checks": {
+        "original_tsm": true,
+        "mean_support": true,
+        "no_residual": true,
+        "all_original_glac_terms": true
+      },
+      "configuration_checks_pass": true,
+      "protocol": null
+    }
+  ]
+}
