@@ -212,6 +212,9 @@ def run_acceptance(args, out):
                                    GRADIENT_EARLY_STEPS=2, GRADIENT_EARLY_INTERVAL=2,
                                    DETACH_TEACHER=detach_teacher)
         smoke_raw['DATA_LOADER']['NUM_WORKERS'] = 0
+        # Exercise the real progress-logging path even in a two-episode smoke.
+        # Otherwise a missing dependency here fails only at formal episode 1000.
+        smoke_raw['TEST']['PROGRESS_LOG_PERIOD'] = 1
         smoke_raw['LOG_PERIOD'] = 1
         cfg = Config(load=False, cfg_dict=copy.deepcopy(smoke_raw))
         cfg.cfg_dict = copy.deepcopy(smoke_raw)

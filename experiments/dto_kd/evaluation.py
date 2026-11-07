@@ -1,4 +1,5 @@
 """Four branch predictions and original fusion, for either declared RNG policy."""
+import json
 import math
 from pathlib import Path
 import time
