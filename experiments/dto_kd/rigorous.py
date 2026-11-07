@@ -1,4 +1,4 @@
-"""Protocol v2: fixed auditable episodes, common loop, full state, Val selection.
+"""Common auditable loop: legacy fixed Meta-Val or official-stream Test selection.
 
 Legacy entry remains available for provenance. This entry never loads a trained
 historical checkpoint as a fresh initialization and requires CUDA certification.
@@ -22,7 +22,7 @@ from trainers.model import build_model
 from scripts.audit_campus_protocol import compare_config
 from scripts.check_ssv2_files import check as check_dataset
 from .diagnostics import coefficients, diagnose
-from .episodes import loader, unpack
+from .episodes import loader, unpack, official_stream, number_stream_episode
 from .evaluation import evaluate
 from .gradient_utils import activation_context
 from .model import DTOTSFSAR
@@ -53,6 +53,9 @@ def evaluation_signature(cfg):
 def train(data, val_data, model, embeddings, val_embeddings, optimizer, scheduler,
           scaler, cfg, device, metadata, resume=None):
     out = Path(cfg.OUTPUT_DIR)
+    official = official_stream(cfg)
+    if official and resume is not None:
+        raise RuntimeError('official worker RNG state cannot be exactly resumed; start a fresh run')
     ledger = EpisodeLedger(out / 'train_episodes.jsonl')
     start, best_accuracy, best_state, best_result, successful_updates = 0, -math.inf, None, None, 0
     if resume is not None:
@@ -101,8 +104,11 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
     for iteration, batch in enumerate(data, start=start):
         step = iteration + 1
         if step > cfg.TRAIN.NUM_TRAIN_TASKS:
+            if official:
+                break  # Original RandomSampler spans NUM_SAMPLES; original loop truncates.
             raise RuntimeError('loader exceeded frozen training budget')
         images, support, query, real, tensors, record = unpack(batch, device)
+        record = number_stream_episode(record, iteration)
         ledger.observe(record)
         if step == 1 and metadata.get('expected_episode0_sha256') not in (None, record['episode_sha256']):
             raise RuntimeError('worker-loaded episode 0 differs from CUDA acceptance input')
@@ -147,7 +153,8 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
             if cuda:
                 # Release unused allocator blocks before FP32 validation on A10.
                 torch.cuda.empty_cache()
-            validation = evaluate(val_data, model, val_embeddings, cfg, 'val', step, device)
+            validation = evaluate(val_data, model, val_embeddings, cfg, 'test' if official else 'val', step, device)
+            validation['checkpoint_selection_split'] = 'Novel-Test' if official else 'Meta-Val'
             validation['successful_updates_before_validation'] = successful_updates
             append_json(out / 'validation.jsonl', validation)
             accuracy = validation['accuracy_percent']['fusion']
@@ -156,7 +163,7 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
                 best_result = validation
                 atomic_torch_save(best_state, out / 'model_best.pth')
                 (out / 'best_result.json').write_text(json.dumps(validation, indent=2) + '\n')
-            print('VAL', json.dumps(validation), flush=True)
+            print('TEST_SELECTION' if official else 'VAL', json.dumps(validation), flush=True)
             model.train()
         before = {n: p.detach().cpu().clone() for n, p in model.named_parameters()
                   if p.requires_grad} if sampled else None
@@ -203,7 +210,9 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
     completed = cfg.TRAIN.NUM_TRAIN_TASKS
     summary = {'completed_episodes': completed, 'successful_updates': successful_updates,
                'train_sequence_sha256': ledger.sequence_hash(completed),
-               'best_meta_val_percent': best_accuracy, 'best_result': best_result,
+               ('best_novel_test_percent' if official else 'best_meta_val_percent'): best_accuracy,
+               'selection_protocol': 'official-test' if official else 'meta-val-fixed',
+               'exact_resume_supported': not official, 'best_result': best_result,
                'source_sha256': metadata['source_sha256'], 'elapsed_seconds': previous_elapsed + time.perf_counter() - started}
     (out / 'training_complete.json').write_text(json.dumps(summary, indent=2) + '\n')
     return summary
@@ -242,6 +251,9 @@ def main():
                 or certificate['torch'] != torch.__version__
                 or certificate['gpu'] != torch.cuda.get_device_name(0)):
             raise RuntimeError('CUDA acceptance certificate is stale or incompatible')
+        wanted_protocol = getattr(cfg.RIGOROUS, 'SELECTION_PROTOCOL', 'meta-val-fixed')
+        if certificate.get('selection_protocol', 'meta-val-fixed') != wanted_protocol:
+            raise RuntimeError('CUDA acceptance used a different selection/sampling protocol')
         from .acceptance import require_adaptation_certificate
         require_adaptation_certificate(certificate, cfg.DTO_KD.MODE,
                                        bool(getattr(cfg.DTO_KD, 'DETACH_TEACHER', False)))
@@ -281,9 +293,13 @@ def main():
                 'optimizer_defaults': optimizer.defaults,
                 'trainable_parameters': sum(p.numel() for p in model.parameters() if p.requires_grad),
                 'clip_manifest': json.loads((ROOT / 'assets/CLIP_VIT_B16_SHA256SUMS.json').read_text()),
-                'controller_update': cfg.DTO_KD.UPDATE_RULE, 'selection_split': 'Meta-Val',
+                'controller_update': cfg.DTO_KD.UPDATE_RULE,
+                'selection_split': 'Novel-Test' if official_stream(cfg) else 'Meta-Val',
+                'selection_protocol': getattr(cfg.RIGOROUS, 'SELECTION_PROTOCOL', 'meta-val-fixed'),
+                'rng_policy': 'official-worker-stream' if official_stream(cfg) else 'fixed-per-episode',
                 'certification': cfg.RIGOROUS.ACCEPTANCE_REPORT, 'smoke': cfg.RIGOROUS.SMOKE,
-                'expected_episode0_sha256': certificate['episode0_sha256'] if certificate else None}
+                'expected_episode0_sha256': certificate['episode0_sha256']
+                    if certificate and not official_stream(cfg) else None}
     metadata['evaluation_protocol_sha256'] = evaluation_signature(cfg)
     metadata['dto_mode'] = model.dto_mode
     metadata['detach_teacher'] = model.dto_detach_teacher
@@ -307,7 +323,7 @@ def main():
         resume = torch.load(cfg.RIGOROUS.RESUME, map_location='cpu') if cfg.RIGOROUS.RESUME else None
         start = resume['completed_episodes'] if resume else 0
         data = loader(cfg, 'train', start=start)
-        val_data = loader(cfg, 'test', 'val')
+        val_data = loader(cfg, 'test', 'test' if official_stream(cfg) else 'val')
         train(data, val_data, model, embeddings, val_embeddings, optimizer, scheduler, scaler,
               cfg, device, metadata, resume)
     else:

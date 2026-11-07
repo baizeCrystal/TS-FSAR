@@ -27,7 +27,10 @@ def source_hash():
     # Include the entry/config tools used to create or certify a run.
     files += [ROOT / name for name in ('main.py', 'scripts/prepare_run_config.py',
                                       'scripts/verify_weights.py', 'scripts/campus_acceptance.py',
-                                      'scripts/check_ssv2_files.py')]
+                                      'scripts/check_ssv2_files.py', 'scripts/launch_campus_suite.py',
+                                      'scripts/calibrate_rigorous_scale.py',
+                                      'scripts/restart_campus_official_test.py',
+                                      'scripts/run_campus_official_e3.py')]
     return hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)), file_hash(p))
                                      for p in files], sort_keys=True).encode()).hexdigest()
 

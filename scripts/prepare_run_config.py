@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate isolated run configs; checkpoint selection uses Val, never Test."""
+"""Generate isolated run configs with an explicitly recorded selection protocol."""
 import argparse
 import hashlib
 import json
@@ -41,8 +41,22 @@ def prepare_protocol(c, output, mode):
             raise ValueError(f'overlap between {a} and {b}')
     # Legacy main calls the eval loader "test" for both validation and final Test.
     # Alias ONLY the prefix in a run-private file, preserving video IDs and labels.
-    evaluation = 'val' if mode == 'train' else 'test'
-    ann = output.parent / ('meta_val_annotations' if mode == 'train' else 'meta_test_annotations')
+    official = c.get('RIGOROUS', {}).get('SELECTION_PROTOCOL') == 'official-test'
+    if official:
+        lock = json.loads((ROOT / 'assets/OFFICIAL_EVALUATION_SOURCE_SHA256.json').read_text())
+        required = [f'configs/ssv2_small/{split}_few_shot.txt' for split in ('train', 'test')]
+        required += ['prompts/Ssv2small_train.json', 'prompts/Ssv2small_test.json']
+        required += [f'configs/ssv2_small/Meta{mode}_{shot}shot.yaml'
+                     for mode in ('train', 'test') for shot in (1, 5)]
+        for name in required:
+            if hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != lock['files'][name]:
+                raise ValueError('canonical official source changed: ' + name)
+        released = yaml.safe_load((ROOT / 'configs/ssv2_small/Metatest_1shot.yaml').read_text())
+        if mapping['test'] != released['TEST']['CLASS_NAME'] or mapping['train'] != released['TRAIN']['CLASS_NAME']:
+            raise ValueError('class-name mapping differs from the official configuration')
+    evaluation = 'val' if mode == 'train' and not official else 'test'
+    ann = output.parent / ('official_test_annotations' if official else
+                           ('meta_val_annotations' if mode == 'train' else 'meta_test_annotations'))
     ann.mkdir(parents=True, exist_ok=True)
     (ann / 'train_few_shot.txt').write_text(texts['train'])
     selected = texts[evaluation]
@@ -56,9 +70,14 @@ def prepare_protocol(c, output, mode):
     c['DATA']['ANNO_DIR'] = str(ann)
     c['TEST']['CLASS_NAME'] = mapping[evaluation]
     c['TEST']['LLM_test_json'] = str(ROOT / f'prompts/Ssv2small_{evaluation}.json')
-    provenance.update(checkpoint_selection_split='Meta-Val', current_evaluation_split=evaluation,
+    provenance.update(checkpoint_selection_split='Novel-Test' if official else 'Meta-Val',
+                      selection_protocol='official-test' if official else 'meta-val-fixed',
+                      rng_policy='official-worker-stream' if official else 'fixed-per-episode',
+                      current_evaluation_split=evaluation,
                       evaluation_prompt=c['TEST']['LLM_test_json'],
                       label_prefix_alias='valN -> testN for legacy loader only' if evaluation == 'val' else None)
+    if official:
+        provenance['official_source_commit'] = lock['commit']
     (ann / 'protocol.json').write_text(json.dumps(provenance, indent=2) + '\n')
     print(f'PROTOCOL: mode={mode}, evaluation={evaluation}, annotations={ann}', flush=True)
 
@@ -74,9 +93,14 @@ def main():
     p.add_argument('--activation-offload', choices=('off', 'diagnostics', 'all'), default='diagnostics')
     p.add_argument('--smoke', action='store_true', help='three train/two validation episodes; not formal results')
     p.add_argument('--protocol', choices=('legacy', 'v2'), default='legacy')
+    p.add_argument('--selection-protocol', choices=('meta-val-fixed', 'official-test'), default='meta-val-fixed')
     p.add_argument('--acceptance-report', help='passed full-model campus CUDA certificate for this shot/seed')
     p.add_argument('--resume', help='protocol-v2 complete resume_latest.pth, not model_best.pth')
     a = p.parse_args()
+    if a.selection_protocol == 'official-test' and a.protocol != 'v2':
+        raise SystemExit('official-test requires the common v2 training loop')
+    if a.selection_protocol == 'official-test' and a.resume:
+        raise SystemExit('official worker RNG cannot resume exactly; start a fresh run')
     c = yaml.safe_load(Path(a.config).read_text())
     if a.protocol != 'v2' and (c.get('DTO_KD', {}).get('DETACH_TEACHER')
                                or c.get('DTO_KD', {}).get('MODE') == 'safe_dynamic'):
@@ -105,6 +129,7 @@ def main():
         c['DTO_KD']['UPDATE_RULE'] = 'paper_pi_softmax'
         c['DTO_KD'].update(GRADIENT_EARLY_STEPS=500, GRADIENT_EARLY_INTERVAL=25)
         c['RIGOROUS'] = {'VERSION': 2, 'SMOKE': a.smoke,
+                         'SELECTION_PROTOCOL': a.selection_protocol,
                          'ACCEPTANCE_REPORT': str(Path(a.acceptance_report).resolve()) if a.acceptance_report else '',
                          'RESUME': str(Path(a.resume).resolve()) if a.resume else ''}
     elif a.resume or a.acceptance_report:

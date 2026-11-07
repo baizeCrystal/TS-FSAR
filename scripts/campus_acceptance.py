@@ -3,7 +3,7 @@
 
 Runs an actual training episode through released E0 and unchanged adapter loss
 paths at one common finite AMP scale, then bounded E0/E1 smoke checks with
-default AMP, diagnostic step 2 and two Val episodes. A passed, source-hashed
+default AMP, diagnostic step 2 and two declared-split evaluation episodes. A passed, source-hashed
 report is required by protocol v2 training.
 """
 import argparse
@@ -31,6 +31,7 @@ def main():
                         help='reuse only model/RNG initialization from a passed hashed report; rerun all checks')
     parser.add_argument('--adaptation-checks', action='store_true',
                         help='also certify E0_detach, E1_detach and E1_safe with common initialization')
+    parser.add_argument('--selection-protocol', choices=('meta-val-fixed', 'official-test'), default='meta-val-fixed')
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error('output-dir exists; choose a fresh directory')
@@ -91,6 +92,7 @@ def run_acceptance(args, out):
     raw['TRAIN']['RANDOM_SEED'] = args.seed
     raw['OUTPUT_DIR'] = raw['OUTPUT_DIR_SAVE'] = str(out)
     raw['DTO_KD'].update(UPDATE_RULE='paper_pi_softmax', ACTIVATION_OFFLOAD='diagnostics', TRACE_INTERVAL=0)
+    raw['RIGOROUS'] = {'VERSION': 2, 'SELECTION_PROTOCOL': args.selection_protocol}
     prepare_protocol(raw, out / 'config.yaml', 'train')
     print('ACCEPTANCE_STAGE checking dataset files', flush=True)
     dataset_check = check(raw['DATA']['DATA_ROOT_DIR'])
@@ -195,6 +197,8 @@ def run_acceptance(args, out):
     if args.adaptation_checks:
         variants += [('off', True, 'E0_detach'), ('dynamic', True, 'E1_detach'),
                      ('safe_dynamic', True, 'E1_safe')]
+        if args.selection_protocol == 'official-test':
+            variants += [('scale_matched', True, 'E3_detach')]
     for mode, detach_teacher, variant in variants:
         print('ACCEPTANCE_STAGE default-AMP smoke:', variant, flush=True)
         smoke_out = out / ('smoke_' + variant)
@@ -220,7 +224,7 @@ def run_acceptance(args, out):
         base_lrs = [group['lr'] for group in optimizer.param_groups]
         scheduler = cosine_lr(optimizer, 0, cfg.TRAIN.NUM_TRAIN_TASKS)
         restore_rng(initial_rng)
-        result = train(loader(cfg, 'train'), loader(cfg, 'test', 'val'), model, embeddings,
+        result = train(loader(cfg, 'train'), loader(cfg, 'test', 'test' if args.selection_protocol == 'official-test' else 'val'), model, embeddings,
                        val_embeddings, optimizer, scheduler, torch.cuda.amp.GradScaler(), cfg, device,
                        {'configuration_signature': configuration_signature(cfg), 'source_sha256': source_hash()})
         if result['successful_updates'] < 3:
@@ -250,6 +254,8 @@ def run_acceptance(args, out):
         gc.collect()
         torch.cuda.empty_cache()
     report = {'passed': True, 'source_sha256': source_hash(), 'shot': args.shot, 'seed': args.seed,
+              'selection_protocol': args.selection_protocol,
+              'selection_split': 'Novel-Test' if args.selection_protocol == 'official-test' else 'Meta-Val',
               'torch': torch.__version__, 'cuda_build': torch.version.cuda,
               'gpu': torch.cuda.get_device_name(0), 'physical_gpu_argument': args.gpu,
               'initial_model_sha256': initial_hash, 'initialization_file': bank.name,

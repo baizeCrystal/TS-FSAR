@@ -15,6 +15,7 @@ smoke=false
 protocol=v2
 acceptance_report=''
 resume=''
+selection_protocol=meta-val-fixed
 activation_offload="${TSFSAR_ACTIVATION_OFFLOAD:-diagnostics}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --protocol) protocol="$2"; shift 2 ;;
     --acceptance-report) acceptance_report="$2"; shift 2 ;;
     --resume) resume="$2"; shift 2 ;;
+    --selection-protocol) selection_protocol="$2"; shift 2 ;;
     --activation-offload) activation_offload="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -95,6 +97,7 @@ echo 'LSN training initialization performs CPU PCA before GPU episode processing
 
 args=(--config "$cfg" --output "$tmp" --seed "$seed" --output-dir "$out" --mode "$mode" --activation-offload "$activation_offload")
 args+=(--protocol "$protocol")
+args+=(--selection-protocol "$selection_protocol")
 if [[ -n "$acceptance_report" ]]; then args+=(--acceptance-report "$acceptance_report"); fi
 if [[ -n "$resume" ]]; then args+=(--resume "$resume"); fi
 if [[ "$protocol" == v2 ]]; then

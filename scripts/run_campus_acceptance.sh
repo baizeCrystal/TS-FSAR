@@ -9,6 +9,7 @@ seed=0
 out=''
 reuse_report=''
 adaptation_checks=false
+selection_protocol=meta-val-fixed
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --shot) shot="$2"; shift 2 ;;
@@ -17,6 +18,7 @@ while [[ $# -gt 0 ]]; do
     --output) out="$2"; shift 2 ;;
     --reuse-initialization-report) reuse_report="$2"; shift 2 ;;
     --adaptation-checks) adaptation_checks=true; shift ;;
+    --selection-protocol) selection_protocol="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -42,6 +44,7 @@ flock -n 9 || { echo 'another acceptance uses this output' >&2; exit 1; }
 exec > >(tee -a "${out}.console.log") 2>&1
 echo "[$(date -Is)] CUDA acceptance only: shot=$shot seed=$seed GPU=$gpu output=$out"
 args=(--shot "$shot" --seed "$seed" --gpu "$gpu" --output-dir "$out")
+args+=(--selection-protocol "$selection_protocol")
 if [[ -n "$reuse_report" ]]; then args+=(--reuse-initialization-report "$reuse_report"); fi
 if [[ "$adaptation_checks" == true ]]; then args+=(--adaptation-checks); fi
 exec python -u scripts/campus_acceptance.py "${args[@]}"

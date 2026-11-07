@@ -1,4 +1,4 @@
-"""Deterministic episode RNG and actual video/frame provenance for protocol v2."""
+"""Actual input provenance for fixed episodes or the official worker RNG stream."""
 import hashlib
 import json
 from pathlib import Path
@@ -9,6 +9,11 @@ import torch
 from torch.utils.data import DataLoader, Sampler
 
 from datasets.video_few_shot import Video_few_shot
+from datasets.collate_functions import COLLATE_FN_REGISTRY
+
+
+def official_stream(cfg):
+    return getattr(getattr(cfg, 'RIGOROUS', None), 'SELECTION_PROTOCOL', 'meta-val-fixed') == 'official-test'
 
 
 def digest(record):
@@ -91,9 +96,52 @@ class EpisodeRange(Sampler):
         return self.stop - self.start
 
 
+class OfficialStreamEpisodes(AuditedEpisodes):
+    """Observe the original worker RNG stream without reseeding or restoring it."""
+    def __getitem__(self, index):
+        self._reads, self._tensor_records, self._ordered = [], {}, None
+        try:
+            batch = Video_few_shot.__getitem__(self, index)
+            if self._ordered is None:
+                raise RuntimeError('original sampler did not report episode ordering')
+            h = hashlib.sha256()
+            for name in ('support_set', 'target_set'):
+                h.update(batch[name].contiguous().numpy().tobytes())
+            record = {'version': 3, 'split': self.protocol_split, 'episode': int(index),
+                      'dataset_index': int(index), 'rng_policy': 'official-worker-stream',
+                      'input_sha256': h.hexdigest(), **self._ordered}
+            record['episode_sha256'] = digest(record)
+            batch['episode_record'] = json.dumps(record, separators=(',', ':'))
+            return batch
+        finally:
+            self._reads, self._tensor_records, self._ordered = [], {}, None
+
+
+def number_stream_episode(record, index):
+    """RandomSampler indices are not episode ordinals; keep both identities."""
+    if record.get('rng_policy') == 'official-worker-stream':
+        record = {k: v for k, v in record.items() if k != 'episode_sha256'}
+        record['episode'] = int(index)
+        record['episode_sha256'] = digest(record)
+    return record
+
+
 def loader(cfg, split, evaluation_split='val', start=0):
     if cfg.TRAIN.BATCH_SIZE != 1 or cfg.TEST.BATCH_SIZE != 1 or cfg.TRAIN.BATCH_SIZE_PER_TASK != 1:
         raise ValueError('protocol v2 requires the released one-episode update')
+    if official_stream(cfg):
+        if start:
+            raise ValueError('official worker stream cannot resume exactly; use a fresh run')
+        dataset = OfficialStreamEpisodes(cfg, split, 'test')
+        collate_name = getattr(cfg.DATA_LOADER, 'COLLATE_FN', None)
+        collate = COLLATE_FN_REGISTRY.get(collate_name)(cfg) if collate_name is not None else None
+        # These are the official datasets.builder.build_loader arguments.
+        # In particular, do NOT pass a generator or replace RandomSampler.
+        return DataLoader(dataset, batch_size=int((cfg.TRAIN.BATCH_SIZE if split == 'train'
+                                                   else cfg.TEST.BATCH_SIZE) / max(1, cfg.NUM_GPUS)),
+                          shuffle=split == 'train', drop_last=split == 'train',
+                          num_workers=cfg.DATA_LOADER.NUM_WORKERS,
+                          pin_memory=cfg.DATA_LOADER.PIN_MEMORY, collate_fn=collate)
     count = cfg.TRAIN.NUM_TRAIN_TASKS if split == 'train' else cfg.TRAIN.NUM_TEST_TASKS
     dataset = AuditedEpisodes(cfg, split, evaluation_split)
     generator = torch.Generator().manual_seed(17001 + cfg.TRAIN.RANDOM_SEED)

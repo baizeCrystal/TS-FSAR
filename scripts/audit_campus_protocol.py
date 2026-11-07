@@ -75,9 +75,10 @@ def compare_config(path, generated=False):
         if protocol_path.is_file():
             protocol = json.loads(protocol_path.read_text())
         is_train = bool(cfg['TRAIN']['ENABLE'])
-        split = 'val' if is_train else 'test'
+        official = cfg.get('RIGOROUS', {}).get('SELECTION_PROTOCOL') == 'official-test'
+        split = 'val' if is_train and not official else 'test'
         canonical = (ROOT / f'configs/ssv2_small/{split}_few_shot.txt').read_text()
-        if is_train:
+        if split == 'val':
             canonical = '\n'.join('test' + row[len('val'):] for row in canonical.splitlines()
                                   if row.strip()) + '\n'
         checks['evaluation_list_matches_split'] = (
@@ -97,12 +98,15 @@ def compare_config(path, generated=False):
             == (ROOT / f'prompts/Ssv2small_{split}.json').read_bytes())
         checks['protocol_records_split'] = (
             protocol is not None and protocol.get('current_evaluation_split') == split
-            and protocol.get('checkpoint_selection_split') == 'Meta-Val')
+            and protocol.get('checkpoint_selection_split') == ('Novel-Test' if official else 'Meta-Val'))
+        if official:
+            checks['official_rng_policy_recorded'] = protocol.get('rng_policy') == 'official-worker-stream'
     return {'config': str(path.resolve()), 'shot': shot, 'dto_mode': dto.get('MODE', 'off'),
             'detach_teacher': bool(dto.get('DETACH_TEACHER', False)),
             'objective_scope': 'shifted full-supervised and base-weighted KL' if dto.get('MODE') == 'safe_dynamic'
                                else 'original scalar objective or declared DTO control',
             'protocol_version': cfg.get('RIGOROUS', {}).get('VERSION', 'legacy'),
+            'selection_protocol': cfg.get('RIGOROUS', {}).get('SELECTION_PROTOCOL', 'meta-val-fixed'),
             'controller_update': dto.get('UPDATE_RULE', 'legacy_logits'),
             'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'released_recipe_differences': differences, 'checks': checks,
@@ -125,7 +129,7 @@ def main():
                                                 text=True).strip(),
         'scope': 'CPU/files only; configuration checks do not certify experiment validity',
         'limitations': [
-            'Meta-Val checkpoint selection differs from historical Test-best selection.',
+            'Historical meta-val-fixed differs from official selection; official-test uses released Test and worker RNG.',
             'legacy_logits is not the direct Eq.18 update; protocol v2 uses paper_pi_softmax.',
             'Configuration checks do not certify full-model CUDA numerics or final accuracy.',
             'Pair actual episode/input hashes and evaluation protocol before a paired analysis.',

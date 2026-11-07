@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Freeze E3 from early Meta-Train shared-LSN effective KL/task norm ratios."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import statistics
@@ -14,8 +15,8 @@ def calibrate(rows, max_step=500, minimum_samples=20, task_alpha=1.):
     for row in rows:
         if (row['parameter_group'] != 'lsn' or row['step'] > max_step or not row.get('finite')):
             continue
-        if row.get('mode') != 'dynamic':
-            raise ValueError('E3 calibration requires E1 dynamic early Meta-Train probes')
+        if row.get('mode') not in ('dynamic', 'safe_dynamic'):
+            raise ValueError('E3 calibration requires E1 early Meta-Train probes')
         if row['step'] in steps:
             # Resume can replay an uncommitted attempt; do not silently double count.
             raise ValueError('duplicate calibration step; provide one committed attempt')
@@ -48,6 +49,15 @@ def main():
         parser.error('requires an E3 scale_matched template')
     result = calibrate([json.loads(line) for line in args.gradients.read_text().splitlines()],
                        task_alpha=cfg['TRAIN']['VIS_ALPHA'])
+    rows = [json.loads(line) for line in args.gradients.read_text().splitlines()]
+    modes = {r.get('mode') for r in rows if r.get('parameter_group') == 'lsn' and r['step'] <= 500}
+    if len(modes) != 1:
+        raise ValueError('mixed source modes; refuse calibration')
+    if modes == {'safe_dynamic'}:
+        cfg['DTO_KD']['DETACH_TEACHER'] = True
+    result.update(source_mode=next(iter(modes)), detach_teacher=bool(cfg['DTO_KD'].get('DETACH_TEACHER', False)),
+                  source_gradients=str(args.gradients.resolve()),
+                  source_gradients_sha256=hashlib.sha256(args.gradients.read_bytes()).hexdigest())
     cfg['DTO_KD']['STATIC_KL_ALPHA'] = result['static_kl_alpha']
     args.output_config.parent.mkdir(parents=True, exist_ok=True)
     args.output_report.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,7 @@
 # TS-FSAR: Task-Specific Distance Correlation Matching for Few-Shot Action Recognition
 
+本轮重新训练按 [官方 24 类 Test 重启手册](docs/OFFICIAL_TEST_RESTART.md)：E0/E1_safe/E2 共8组从初始模型重训，官方随机采样与Test周期选best，随后自动校准并补跑E3。此前Meta-Val队列仅保留历史记录。
+
 评测协议更正（2026-11-07）：已有校园 v2 使用独立 Meta-Val 与固定 Episode，**不是官方选模/采样流程**。用户要求以官方为准；官方流程核对及直接运行固定版本官方代码的测试入口见 [官方评测说明](docs/OFFICIAL_EVALUATION_ALIGNMENT.md)。旧 v2 说明仅描述历史运行，不作为完整官方复现承诺。
 
 校园 DTO 实验正式重启使用 [protocol v2 手册](docs/RIGOROUS_RESTART.md)：先停止旧队列、核对基础配方，再执行校园完整模型 CUDA 验收；通过后才运行同初始化/同 Episode 的 E0/E1/E2。旧 softmax-logit 试验与新直接权重更新版本分别保留，不混用结果。

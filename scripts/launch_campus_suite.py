@@ -63,6 +63,7 @@ def job_command(job, gpu):
             "--config", job["config"], "--output", job["output"],
             "--activation-offload", job.get("activation_offload", "diagnostics")]
     command += ['--protocol', job.get('protocol', 'legacy')]
+    command += ['--selection-protocol', job.get('selection_protocol', 'meta-val-fixed')]
     if job.get('protocol') == 'v2':
         command += ['--acceptance-report', job['acceptance_report']]
     return command
@@ -154,6 +155,7 @@ def main():
     p.add_argument("--activation-offload", choices=("off", "diagnostics", "all"), default="diagnostics")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument('--protocol', choices=('legacy', 'v2'), default='v2')
+    p.add_argument('--selection-protocol', choices=('meta-val-fixed', 'official-test'), default='meta-val-fixed')
     p.add_argument('--experiments', default='E0,E1,E2', help='E0 only for a baseline-first queue')
     p.add_argument('--acceptance-1shot', type=Path)
     p.add_argument('--acceptance-5shot', type=Path)
@@ -185,6 +187,7 @@ def main():
     for job in jobs:
         job["activation_offload"] = a.activation_offload
         job['protocol'] = a.protocol
+        job['selection_protocol'] = a.selection_protocol
         if a.protocol == 'v2':
             certificate = getattr(a, f'acceptance_{job["shot"]}shot')
             if certificate is None or not certificate.is_file():
