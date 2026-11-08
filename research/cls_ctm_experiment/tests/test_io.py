@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import torch
 from research.cls_ctm_experiment.common import atomic_save, identity_file, output_lock
-from research.cls_ctm_experiment.launch import check_gpu
+from research.cls_ctm_experiment.launch import allocations, check_gpu
 from research.cls_ctm_experiment.train import preserve_prefix
 from research.cls_ctm_experiment.analyze import summarize
 from research.ps_ds_subspace_experiment.protocol import sha_file
@@ -52,6 +52,15 @@ class IOTests(unittest.TestCase):
                 atomic_save(value,path)
             self.assertEqual(partial.read_text(),'interrupted write')
 
+    def test_single_shot_allocation_never_requires_other_shot_gpu(self):
+        self.assertEqual(allocations('1','4'),[(1,4)])
+        self.assertEqual(allocations('5','5'),[(5,5)])
+        self.assertEqual(allocations('1,5','4,5'),[(1,4),(5,5)])
+        for shots,gpus in [('1','4,5'),('1,5','4'),('1,5','4,4'),
+                           ('1,1','4,5'),('2','4'),('1','-1'),('','4')]:
+            with self.assertRaises(ValueError):
+                allocations(shots,gpus)
+
     def test_launcher_refuses_busy_gpu_without_stopping_processes(self):
         with patch('subprocess.check_output',return_value='12345\n') as query:
             with self.assertRaises(RuntimeError):
@@ -64,7 +73,7 @@ class IOTests(unittest.TestCase):
     def test_paired_report_checks_hashes_and_counts_actual_transitions(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            header = dict(shot=1,episodes=3,method='CLS-CTM-discriminative',preflight_module=False,
+            header = dict(shot=1,episodes=3,implementation_sha256='fixture',method='CLS-CTM-discriminative',preflight_module=False,
                           method_disabled=False)
             (root/'run_identity.json').write_text(json.dumps(header))
             rows = []
@@ -87,6 +96,12 @@ class IOTests(unittest.TestCase):
             self.assertEqual(result['matching']['introduced'],0)
             self.assertAlmostEqual(result['matching']['delta_pp'],20.)
             self.assertEqual(result['matching']['ci95_pp'],[19.999999999999996]*2)
+            with patch('sys.argv',['analyze','--shot1',str(root),
+                       '--bootstrap','5000','--output',str(root/'single_analysis')]):
+                from research.cls_ctm_experiment.analyze import main
+                main()
+            self.assertTrue((root/'single_analysis/shot1_statistics.json').is_file())
+            self.assertFalse((root/'single_analysis/shot5_statistics.json').exists())
             path.write_text(path.read_text()+'\n')
             with self.assertRaises(ValueError):
                 summarize(root,5000)

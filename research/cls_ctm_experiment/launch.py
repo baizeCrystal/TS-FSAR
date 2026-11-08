@@ -1,4 +1,4 @@
-"""Launch only two independent CLS-CTM jobs on explicitly idle allocated GPUs."""
+"""Launch selected independent CLS-CTM jobs on explicitly idle allocated GPUs."""
 import argparse
 from datetime import datetime
 import json
@@ -29,16 +29,32 @@ def check_gpu(gpu):
         raise RuntimeError(f'GPU {gpu} ECC is {ecc}; choose a healthy allocated GPU')
 
 
+def allocations(shots_text, gpus_text):
+    """One selected shot per GPU; validate before preparing or launching jobs."""
+    try:
+        shots = [int(x) for x in shots_text.split(',')]
+        gpus = [int(x) for x in gpus_text.split(',')]
+    except ValueError as exc:
+        raise ValueError('shots and gpus must be comma-separated integers') from exc
+    if not shots or len(set(shots)) != len(shots) or any(s not in (1,5) for s in shots):
+        raise ValueError('shots must be 1, 5, or 1,5 without duplicates')
+    if len(gpus) != len(shots) or len(set(gpus)) != len(gpus) or min(gpus) < 0:
+        raise ValueError('provide one distinct nonnegative GPU per selected shot')
+    return list(zip(shots,gpus))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--shots',default='1,5')
     p.add_argument('--gpus',default='4,5')
     p.add_argument('--assets-dir',type=Path,default=Path('/data/fsar_workspace/psds_assets'))
     p.add_argument('--data-root',type=Path,default=Path('/data/fsar_workspace/datasets/SSv2-Small'))
     p.add_argument('--output-root',type=Path,required=True)
     args = p.parse_args()
-    gpus = [int(x) for x in args.gpus.split(',')]
-    if len(gpus) != 2 or len(set(gpus)) != 2 or min(gpus)<0:
-        p.error('provide exactly two distinct allocated GPUs, e.g. 4,5')
+    try:
+        assigned = allocations(args.shots,args.gpus)
+    except ValueError as exc:
+        p.error(str(exc))
     if args.output_root.exists():
         p.error('output root exists; new launch refused (individual pipelines can resume)')
     ready = json.loads((args.assets_dir/'PSDS_READY.json').read_text())
@@ -46,7 +62,7 @@ def main():
         p.error('assets not prepared/verified')
     if not (args.data_root/'30109.mp4').is_file():
         p.error('data-root must directly contain the SSv2-Small .mp4 files')
-    for gpu in gpus:
+    for _,gpu in assigned:
         check_gpu(gpu)
     out = args.output_root.resolve()
     out.mkdir(parents=True)
@@ -68,7 +84,7 @@ def main():
     signal.signal(signal.SIGTERM,interrupt)
     signal.signal(signal.SIGINT,interrupt)
     try:
-        for shot,gpu in zip((1,5),gpus):
+        for shot,gpu in assigned:
             log = out/f'shot{shot}.console.log'
             stream = log.open('x'); streams.append(stream)
             manifest = ROOT/f'research/ps_ds_subspace_experiment/results/shot{shot}/episodes.jsonl.gz'
@@ -95,9 +111,9 @@ def main():
         if any(proc.returncode for proc in processes):
             raise RuntimeError('one or more CLS-CTM jobs failed; inspect console logs, no automatic retry')
         command = [sys.executable,'-u','-m','research.cls_ctm_experiment.analyze',
-            '--shot1',str(out/'shot1/evaluation/formal'),
-            '--shot5',str(out/'shot5/evaluation/formal'),
             '--bootstrap','10000','--output',str(out/'formal_analysis')]
+        for shot,_ in assigned:
+            command.extend([f'--shot{shot}',str(out/f'shot{shot}/evaluation/formal')])
         subprocess.run(command,cwd=ROOT,check=True)
         print('CLSCTM_ALL_COMPLETE',out/'formal_analysis/experiment_report.md',flush=True)
     finally:

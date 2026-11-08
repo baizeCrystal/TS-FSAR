@@ -71,6 +71,16 @@ bash research/cls_ctm_experiment/launch_campus.sh --gpus 4,5
 )
 ```
 
+如果 GPU4 已空闲、GPU5 仍在跑 SAM/QAM，可只启动 1-shot：
+
+```bash
+bash research/cls_ctm_experiment/launch_campus.sh --shots 1 --gpus 4
+```
+
+单 shot 队列也会自动生成该 shot 的完整统计和报告，不等待另一个 shot。
+5-shot 可在 GPU5 空闲后用 `--shots 5 --gpus 5` 启动到新的结果目录。
+默认 `--shots 1,5 --gpus 4,5` 仍同时运行两种 shot，每种 shot 独占一张卡。
+
 启动脚本自身将 **CPU 检查、GitHub 资源校验、GPU smoke、训练和评测整个流程**
 放入后台，Terminal 断开不影响流程。日志绝对路径会立即打印。
 资源沿用 `/data/fsar_workspace/psds_assets/`，SHA256 通过的文件不会重新下载。

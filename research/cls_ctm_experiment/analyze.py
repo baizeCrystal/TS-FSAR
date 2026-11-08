@@ -28,15 +28,18 @@ def summarize(folder, repetitions):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--shot1', type=Path, required=True)
-    p.add_argument('--shot5', type=Path, required=True)
+    p.add_argument('--shot1', type=Path)
+    p.add_argument('--shot5', type=Path)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--bootstrap', type=int, default=10000)
     args = p.parse_args()
     if args.output.exists():
         raise ValueError('choose a fresh analysis directory')
-    results = [summarize(path,args.bootstrap) for path in (args.shot1,args.shot5)]
-    if [r['shot'] for r,_ in results] != [1,5]:
+    selected = [(shot,path) for shot,path in ((1,args.shot1),(5,args.shot5)) if path is not None]
+    if not selected:
+        p.error('provide --shot1 and/or --shot5')
+    results = [summarize(path,args.bootstrap) for _,path in selected]
+    if [r['shot'] for r,_ in results] != [shot for shot,_ in selected]:
         raise ValueError('shot order mismatch')
     if len({r['episodes'] for r,_ in results}) != 1:
         raise ValueError('do not mix exploratory and formal results')

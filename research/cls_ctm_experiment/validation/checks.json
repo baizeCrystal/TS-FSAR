@@ -1,9 +1,9 @@
 {
   "date": "2026-11-08",
-  "implementation_sha256": "532a9787774eba7690762940d661b63fdf19db690bf7b0ff49c0e4b713ff9a85",
+  "implementation_sha256": "15013e29473549d5386626318b8462b2165deb4f2fc7cc816e28a4c5b0b2f700",
   "python_environment": "/home/zyb/TS-FSAR/.conda-env/bin/python",
   "torch": "2.2.2+cu121",
-  "cpu_tests_passed": 15,
+  "cpu_tests_passed": 16,
   "original_model_and_data_source_hashes_verified": true,
   "official_per_shot_training_config_hashes_verified": true,
   "shell_syntax_passed": true,
@@ -12,5 +12,6 @@
   "local_video_encoder_inference_performed": false,
   "local_gpu_training_performed": false,
   "campus_preflight_required": true,
-  "accuracy_results_available": false
+  "accuracy_results_available": false,
+  "single_shot_launch_and_report_verified": true
 }
