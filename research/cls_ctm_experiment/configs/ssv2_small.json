@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "module": {
+    "channels": 256,
+    "residual_strength": 0.1,
+    "eps": 1e-08
+  },
+  "training": {
+    "steps": 10000,
+    "learning_rate": 0.00025,
+    "weight_decay": 0.1,
+    "optimizer": "AdamW",
+    "schedule": "cosine_no_warmup",
+    "queries_per_class": 5,
+    "selection": "fixed-budget-final; no Test selection",
+    "trainable": "CLS-CTM projector only; frozen E0",
+    "encoder_videos_per_chunk": 4,
+    "activation_checkpoint": true,
+    "feature_frames_per_chunk": 8
+  },
+  "evaluation": {
+    "way": 5,
+    "frames": 8,
+    "queries_per_class": 1,
+    "episodes": 10000,
+    "fusion": "original per-shot product fusion",
+    "primary_metric": "fusion"
+  },
+  "official_train_files": {
+    "configs/ssv2_small/Metatrain_1shot.yaml": "126043d88cbf8af0f04c80185203eddb2035875449b9353e38f442d3eb51b34d",
+    "configs/ssv2_small/Metatrain_5shot.yaml": "6e5d9c5a88a964c200bef9b92f3d91275877e57bc9b4ea65f576d7dfa3880023"
+  },
+  "reference": {
+    "paper": "https://openaccess.thecvf.com/content_CVPR_2019/html/Li_Finding_Task-Relevant_Features_for_Few-Shot_Learning_by_Category_Traversal_CVPR_2019_paper.html",
+    "historical_implementation": "experiments/ctm_metric_mask/core.py and experiments/ctm_task_mask/core.py in original local TS-FSAR tree"
+  },
+  "adaptation": [
+    "Support CLS: frame mean, then shot mean per class",
+    "Preserve raw across-class mean and population variance",
+    "Nearest other class selected by cosine of CLS prototypes; mean per-channel squared gap, ties averaged",
+    "Concatenate [mean, variance, nearest_gap]; Linear(3C,C), GELU, Linear(C,C)",
+    "Zero final layer; C*softmax then gate=1+0.1*(mask-1)",
+    "One episode-shared gate for all Support/Query CLS/Patch and frames",
+    "Original unmasked TSM condition, frozen original E0 and original fusion",
+    "Base Train matching CE; fixed-budget final module; Fusion primary paired evaluation metric"
+  ]
+}
