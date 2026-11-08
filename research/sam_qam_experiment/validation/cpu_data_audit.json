@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "model_inference": false,
+  "cuda_used": false,
+  "records": [
+    {
+      "shot": 1,
+      "split": "train",
+      "support": 5,
+      "queries": 25,
+      "frames": 8,
+      "repeated_index_identical_pixels": true,
+      "pixels_sha256": "203bf252a6291cdaa8c2a9c56146a30bb9d1952c57b56837f9e4e418c04c8b77",
+      "episode_id": "55c1775293949e9510586ae0647323bae141ba0837372a07dfce561bc23bc8f4",
+      "annotation_sha256": "724c01ee6595639d0829874e503936596de6564f7bf4293cf332b0f7891e0696"
+    },
+    {
+      "shot": 5,
+      "split": "train",
+      "support": 25,
+      "queries": 25,
+      "frames": 8,
+      "repeated_index_identical_pixels": true,
+      "pixels_sha256": "eff58d1d9b0b27f23d7a727bb2bb862c30a34ab151d102b96222972003ff4900",
+      "episode_id": "32603c79573f46385d9ca70d32673dd32e82daa602a57221edd1a40306d97139",
+      "annotation_sha256": "724c01ee6595639d0829874e503936596de6564f7bf4293cf332b0f7891e0696"
+    }
+  ]
+}

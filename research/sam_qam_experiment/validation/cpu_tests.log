@@ -1,0 +1,22 @@
+/home/zyb/TS-FSAR/.conda-env/lib/python3.8/site-packages/torchvision/transforms/_functional_video.py:6: UserWarning: The 'torchvision.transforms._functional_video' module is deprecated since 0.12 and will be removed in the future. Please use the 'torchvision.transforms.functional' module instead.
+  warnings.warn(
+/home/zyb/TS-FSAR/.conda-env/lib/python3.8/site-packages/torchvision/transforms/_transforms_video.py:22: UserWarning: The 'torchvision.transforms._transforms_video' module is deprecated since 0.12 and will be removed in the future. Please use the 'torchvision.transforms' module instead.
+  warnings.warn(
+test_checkpointed_chunks_preserve_scores_gradients_and_adam_update (test_core.SAMQAMTests) ... ok
+test_disabled_path_is_bitwise_original (test_core.SAMQAMTests) ... ok
+test_neutral_gates_preserve_original_alpha_d_and_tsm (test_core.SAMQAMTests) ... ok
+test_pinned_authors_implementation_golden_weights (test_core.SAMQAMTests) ... ok
+test_real_256_channel_196_patch_eight_frame_forward_backward (test_core.SAMQAMTests) ... ok
+test_representativeness_matches_literal_paper_distances (test_core.SAMQAMTests) ... ok
+test_support_permutation_and_query_batch_independence_at_test (test_core.SAMQAMTests) ... ok
+test_training_noise_is_bounded_and_absent_in_eval (test_core.SAMQAMTests) ... ok
+test_checkpoint_weights_only_roundtrip_and_unfinished_file_preservation (test_io.IOTests) ... ok
+test_launcher_refuses_busy_gpu_without_stopping_processes (test_io.IOTests) ... ok
+test_output_identity_and_live_lock_prevent_conflicting_runs (test_io.IOTests) ... ok
+test_paired_report_checks_hashes_and_counts_actual_transitions (test_io.IOTests) ... ok
+test_resume_preserves_post_checkpoint_evidence_and_rejects_missing_prefix (test_io.IOTests) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.989s
+
+OK

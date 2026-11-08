@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "module": {
+    "channels": 256,
+    "alpha": 0.5,
+    "beta": 0.5,
+    "training_noise": 0.2
+  },
+  "training": {
+    "steps": 10000,
+    "learning_rate": 0.00025,
+    "weight_decay": 0.1,
+    "optimizer": "AdamW",
+    "schedule": "cosine_no_warmup",
+    "queries_per_class": 5,
+    "selection": "fixed-budget-final; no Test selection",
+    "trainable": "SAM/QAM only; frozen E0",
+    "encoder_videos_per_chunk": 4,
+    "query_chunk": 1,
+    "activation_checkpoint": true
+  },
+  "evaluation": {
+    "way": 5,
+    "frames": 8,
+    "queries_per_class": 1,
+    "episodes": 10000,
+    "fusion": "original per-shot product fusion"
+  },
+  "official_train_files": {
+    "configs/ssv2_small/Metatrain_1shot.yaml": "126043d88cbf8af0f04c80185203eddb2035875449b9353e38f442d3eb51b34d",
+    "configs/ssv2_small/Metatrain_5shot.yaml": "6e5d9c5a88a964c200bef9b92f3d91275877e57bc9b4ea65f576d7dfa3880023"
+  },
+  "reference": {
+    "paper": "https://openaccess.thecvf.com/content/CVPR2022/html/Lee_Task_Discrepancy_Maximization_for_Fine-Grained_Few-Shot_Classification_CVPR_2022_paper.html",
+    "code": "https://github.com/leesb7426/TDM/blob/24be5f3ee75e10f74e07bedfce28fb51a001f7ab/models/TDM.py",
+    "original_code_sha256": "1b0f6d5e0b7233e439db6c2fe6b12637a2dc87f505aaf15f58ff34d357bbf1f7"
+  },
+  "adaptation": [
+    "256 signed LSN channels, no ReLU or extra feature normalization",
+    "shot-mean video templates; distances averaged over 8x196 coordinates",
+    "one gate shared across all frames, applied to CLS and Patch before alpha-D",
+    "original unmasked TSM condition and original global/semantic branches",
+    "frozen E0; train new modules with Base episodic matching CE only"
+  ]
+}
