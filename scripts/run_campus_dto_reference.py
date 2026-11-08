@@ -32,7 +32,7 @@ def main():
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     gpus = [int(x) for x in args.gpus.split(',')]
-    allowed = {'E0', 'E0_detach', 'E1_exact', 'E1_amortized', 'E2'}
+    allowed = {'E0', 'E0_detach', 'E1_exact', 'E1_amortized', 'E1_task_anchored', 'E2'}
     experiments = set(args.experiments.split(','))
     if len(gpus) < 2 or len(set(gpus)) != len(gpus) or min(gpus) < 0 or 7 in gpus:
         parser.error('at least two distinct allocated GPUs; GPU7 excluded after reported ECC')
@@ -62,7 +62,7 @@ def main():
     jobs = [j['name'] for j in build_jobs([1, 5], args.seed, out / 'formal', set(), 'v2', True, True)
             if j['experiment'] in experiments]
     print(json.dumps({'output': str(out), 'gpus': gpus, 'initialization_reports': str(previous),
-                      'cuda_acceptance': ['E0-equivalence', 'E0', 'E0_detach', 'E1_amortized', 'E1_exact'],
+                      'cuda_acceptance': ['E0-equivalence', 'E0', 'E0_detach', 'E1_amortized', 'E1_exact', 'E1_task_anchored'],
                       'selection': 'official 24-class Test', 'formal_jobs': jobs if args.train else [],
                       'automatic_E3': False, 'stop_existing_jobs': False}, indent=2), flush=True)
     if not args.apply:
@@ -83,8 +83,12 @@ def main():
         for shot, gpu in zip((1, 5), gpus[:2]):
             command = ['bash', str(ROOT / 'scripts/run_campus_acceptance.sh'), '--shot', str(shot),
                        '--gpu', str(gpu), '--seed', str(args.seed), '--output', str(out / f'acceptance/shot{shot}'),
-                       '--selection-protocol', 'official-test', '--dto-reference-checks',
+                       '--selection-protocol', 'official-test',
                        '--reuse-initialization-report', str(previous / f'shot{shot}/acceptance.json')]
+            if 'E1_task_anchored' in experiments:
+                command.append('--task-anchored-checks')
+            if experiments & {'E1_exact', 'E1_amortized'}:
+                command.append('--dto-reference-checks')
             children.append(subprocess.Popen(command, cwd=ROOT, start_new_session=True))
         returncodes = [p.wait() for p in children]
         children.clear()

@@ -30,7 +30,7 @@ def build_jobs(shots, seed, output_root, skip, protocol='legacy', include_adapta
     if include_adaptations:
         variants += [('E0_detach', None), ('E1_detach', None), ('E1_safe', None)]
     if include_references:
-        variants += [('E1_exact', None), ('E1_amortized', None)]
+        variants += [('E1_exact', None), ('E1_amortized', None), ('E1_task_anchored', None)]
     for experiment, alpha in variants:
         for shot in shots:
             if protocol == 'v2' and experiment == 'E2':
@@ -176,10 +176,10 @@ def main():
         p.error("cpu-threads must be positive; launch-delay must be nonnegative")
     out = Path(a.output_root).resolve()
     experiments = set(a.experiments.split(','))
-    if not experiments or not experiments <= {'E0', 'E1', 'E2', 'E0_detach', 'E1_detach', 'E1_safe', 'E1_exact', 'E1_amortized'}:
+    if not experiments or not experiments <= {'E0', 'E1', 'E2', 'E0_detach', 'E1_detach', 'E1_safe', 'E1_exact', 'E1_amortized', 'E1_task_anchored'}:
         p.error('unknown --experiments selection')
     include_adaptations = bool(experiments & {'E0_detach', 'E1_detach', 'E1_safe'})
-    include_references = bool(experiments & {'E1_exact', 'E1_amortized'})
+    include_references = bool(experiments & {'E1_exact', 'E1_amortized', 'E1_task_anchored'})
     if (include_adaptations or include_references) and a.protocol != 'v2':
         p.error('new FSAR adaptations require --protocol v2')
     all_jobs = build_jobs(shots, a.seed, out, set(), a.protocol, include_adaptations, include_references)

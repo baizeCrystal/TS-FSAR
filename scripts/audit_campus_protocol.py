@@ -108,10 +108,13 @@ def compare_config(path, generated=False):
                                if dto.get('MODE') == 'paper_exact'
                                else 'original log KL/DCM; unchanged auxiliary CE; direct Eq18 approximation'
                                if dto.get('MODE') == 'paper_amortized'
+                               else 'task-anchored DCM with bounded KL; unchanged auxiliary CE'
+                               if dto.get('MODE') == 'task_anchored'
                                else 'original scalar objective or declared DTO control',
             'protocol_version': cfg.get('RIGOROUS', {}).get('VERSION', 'legacy'),
             'selection_protocol': cfg.get('RIGOROUS', {}).get('SELECTION_PROTOCOL', 'meta-val-fixed'),
             'controller_update': 'paper-closed-form-simplex' if dto.get('MODE') == 'paper_exact'
+                                 else 'task-anchored-kl-cap' if dto.get('MODE') == 'task_anchored'
                                  else dto.get('UPDATE_RULE', 'legacy_logits'),
             'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'released_recipe_differences': differences, 'checks': checks,

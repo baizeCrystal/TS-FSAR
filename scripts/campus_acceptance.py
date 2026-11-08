@@ -33,6 +33,8 @@ def main():
                         help='also certify E0_detach, E1_detach and E1_safe with common initialization')
     parser.add_argument('--dto-reference-checks', action='store_true',
                         help='certify original-log Eq18 and shared-LSN closed-form DTO paths')
+    parser.add_argument('--task-anchored-checks', action='store_true',
+                        help='certify task-anchored TS-FSAR DTO with bounded KL')
     parser.add_argument('--selection-protocol', choices=('meta-val-fixed', 'official-test'), default='meta-val-fixed')
     args = parser.parse_args()
     if args.output_dir.exists():
@@ -208,6 +210,8 @@ def run_acceptance(args, out):
             variants += [('off', True, 'E0_detach')]
         variants += [('paper_amortized', True, 'E1_amortized'),
                      ('paper_exact', True, 'E1_exact')]
+    if args.task_anchored_checks:
+        variants += [('task_anchored', True, 'E1_task_anchored')]
     for mode, detach_teacher, variant in variants:
         print('ACCEPTANCE_STAGE default-AMP smoke:', variant, flush=True)
         smoke_out = out / ('smoke_' + variant)
@@ -266,6 +270,13 @@ def run_acceptance(args, out):
                            and row['dto']['solver_numel'] > 0 for row in trace):
                     raise RuntimeError('exact DTO solver did not certify every smoke episode')
                 adaptation_check['shared_lsn_pair_kkt_every_episode'] = True
+            if mode == 'task_anchored':
+                if not all(row['dto'].get('task_first_order_nonnegative') is True
+                           and row['dto'].get('task_coefficient') == raw['TRAIN']['VIS_ALPHA']
+                           and 0. <= row['dto'].get('lambda_kl', -1.) <= 1.
+                           for row in trace):
+                    raise RuntimeError('task-anchored DTO did not preserve task coefficient/bounds')
+                adaptation_check['task_anchor_verified'] = True
         smokes.append({'mode': mode, 'variant': variant, 'detach_teacher': detach_teacher,
                        'adaptation_check': adaptation_check,
                        'minimum_required_successful_updates': 3,

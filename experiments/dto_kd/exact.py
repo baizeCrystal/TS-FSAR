@@ -112,3 +112,89 @@ def shared_lsn_weights(model, distill, task, eps):
                   distill_log_floor_active=d < eps, task_log_floor_active=t < eps,
                   alignment_scope='KL/DCM pair on shared LSN before auxiliary CE, AMP and AdamW')
     return result
+
+
+def task_anchored_kl_weight(model, distill, task, base_task_alpha,
+                            base_distill_alpha, eps, kappa=0.0, rho=1.0):
+    """Choose only a KL multiplier while preserving the DCM task gradient.
+
+    This is the TS-FSAR adaptation of DTO-KD, not the paper's symmetric
+    simplex solver.  The weighted DCM gradient remains the anchor.  KL is
+    attenuated when it would reverse the DCM first-order direction or exceed
+    the declared norm ratio.  ``kappa=0`` guarantees non-negative DCM
+    directional descent; ``rho=1`` caps weighted KL at the DCM norm.
+    """
+    if not (math.isfinite(kappa) and 0.0 <= kappa < 1.0):
+        raise ValueError('task anchor kappa must satisfy 0 <= kappa < 1')
+    if not (math.isfinite(rho) and rho > 0.0):
+        raise ValueError('task anchor rho must be positive')
+    if base_task_alpha <= 0.0 or base_distill_alpha < 0.0:
+        raise ValueError('task anchor loss coefficients must be nonnegative')
+    selected = [(n, p) for n, p in model.named_parameters()
+                if is_lsn_parameter(n) and p.requires_grad]
+    if not selected:
+        raise RuntimeError('task-anchored solver found no trainable shared-LSN candidates')
+    params = [p for _, p in selected]
+
+    def gradients(loss):
+        grads = torch.autograd.grad(loss, params, retain_graph=True, allow_unused=True)
+        values = [None if g is None else g.detach().to(device='cpu', dtype=torch.float64)
+                  for g in grads]
+        del grads
+        return values
+
+    task_grads = gradients(task)
+    distill_grads = gradients(distill)
+    gtt = gdd = gtd = 0.0
+    names, elements = [], 0
+    for (name, param), gt, gd in zip(selected, task_grads, distill_grads):
+        if gt is None or gd is None:
+            continue
+        a = gt.reshape(-1) * float(base_task_alpha)
+        b = gd.reshape(-1) * float(base_distill_alpha)
+        if not bool(torch.isfinite(a).all() and torch.isfinite(b).all()):
+            raise FloatingPointError('nonfinite task-anchored gradients: ' + name)
+        gtt += float(torch.dot(a, a))
+        gdd += float(torch.dot(b, b))
+        gtd += float(torch.dot(a, b))
+        names.append(name)
+        elements += param.numel()
+    if not names:
+        raise RuntimeError('no LSN parameters are connected to both anchored objectives')
+
+    task_norm = math.sqrt(max(0.0, gtt))
+    distill_norm = math.sqrt(max(0.0, gdd))
+    denom = task_norm * distill_norm
+    cosine = gtd / denom if denom > eps else 0.0
+    if distill_norm <= eps or task_norm <= eps or base_distill_alpha == 0.0:
+        lam_scale = 0.0 if distill_norm > eps and task_norm <= eps else 1.0
+    else:
+        lam_scale = rho * task_norm / distill_norm
+    if gtd < 0.0:
+        lam_conflict = (1.0 - kappa) * gtt / (-gtd + eps)
+    else:
+        lam_conflict = 1.0
+    lam = min(1.0, max(0.0, lam_scale), max(0.0, lam_conflict))
+    result = {
+        'solver': 'task-anchored-kl-cap',
+        'solver_group': 'shared_lsn',
+        'lambda_kl': lam,
+        'effective_kl_coefficient': float(base_distill_alpha) * lam,
+        'task_coefficient': float(base_task_alpha),
+        'task_anchor_kappa': float(kappa),
+        'task_anchor_rho': float(rho),
+        'weighted_task_norm': task_norm,
+        'weighted_distill_norm': distill_norm,
+        'weighted_distill_over_task_norm': distill_norm / task_norm if task_norm > eps else math.inf,
+        'weighted_task_distill_cosine': cosine,
+        'lambda_scale_bound': max(0.0, lam_scale),
+        'lambda_conflict_bound': max(0.0, lam_conflict),
+        'lambda_limited_by': ('conflict' if lam == max(0.0, lam_conflict)
+                              and lam_conflict <= lam_scale and lam_conflict <= 1.0 else
+                              'scale' if lam == max(0.0, lam_scale) and lam_scale <= 1.0 else 'base'),
+        'solver_parameter_names': names,
+        'solver_numel': elements,
+        'alignment_scope': 'raw weighted KL/DCM pair on shared LSN; DCM task anchored',
+        'task_first_order_nonnegative': True,
+    }
+    return result

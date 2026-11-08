@@ -123,7 +123,7 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
         # The exact paper solver performs two extra backwards every episode.
         # It needs the same saved-tensor offload as diagnostic episodes on A10.
         with activation_context(cfg.DTO_KD.ACTIVATION_OFFLOAD,
-                                sampled or model.dto_mode == 'paper_exact'), torch.autocast(
+                                sampled or model.dto_mode in ('paper_exact', 'task_anchored')), torch.autocast(
                 device_type=device.type, enabled=cuda):
             result = model(images, support, query, real, embeddings)
             loss = result['loss']
@@ -151,8 +151,11 @@ def train(data, val_data, model, embeddings, val_embeddings, optimizer, schedule
         # No later operation needs this training input or its completed graph.
         # Keep optimizer gradients for the released validation-before-step order.
         del batch, images, support, query, real, tensors, result, loss
-        # Match the released validation-before-step timing for ALL methods.
-        if step % cfg.TRAIN.VAL_FRE_ITER == 0:
+        # Match the released validation-before-step timing for ALL methods,
+        # while allowing expensive official evaluation to start only after
+        # the configured warm-up episodes.
+        eval_start = int(getattr(cfg.TRAIN, 'EVAL_START_EPISODE', 1))
+        if step >= eval_start and step % cfg.TRAIN.VAL_FRE_ITER == 0:
             if cuda:
                 # Release unused allocator blocks before FP32 validation on A10.
                 torch.cuda.empty_cache()
@@ -296,8 +299,9 @@ def main():
                 'optimizer_defaults': optimizer.defaults,
                 'trainable_parameters': sum(p.numel() for p in model.parameters() if p.requires_grad),
                 'clip_manifest': json.loads((ROOT / 'assets/CLIP_VIT_B16_SHA256SUMS.json').read_text()),
-                'controller_update': 'paper-closed-form-simplex' if model.dto_mode == 'paper_exact'
-                                     else cfg.DTO_KD.UPDATE_RULE,
+                'controller_update': ('paper-closed-form-simplex' if model.dto_mode == 'paper_exact'
+                                     else 'task-anchored-kl-cap' if model.dto_mode == 'task_anchored'
+                                     else cfg.DTO_KD.UPDATE_RULE),
                 'selection_split': 'Novel-Test' if official_stream(cfg) else 'Meta-Val',
                 'selection_protocol': getattr(cfg.RIGOROUS, 'SELECTION_PROTOCOL', 'meta-val-fixed'),
                 'rng_policy': 'official-worker-stream' if official_stream(cfg) else 'fixed-per-episode',

@@ -7,7 +7,7 @@ from .parameter_groups import is_lsn_parameter
 
 
 def coefficients(model, cfg, task, distill):
-    if model.dto_mode in ('safe_dynamic', 'paper_exact', 'paper_amortized'):
+    if model.dto_mode in ('safe_dynamic', 'paper_exact', 'paper_amortized', 'task_anchored'):
         return model.dto_last_metrics['task_coefficient'], model.dto_last_metrics['distill_coefficient']
     if model.dto_mode == 'dynamic':
         # These are the weights used by this forward, before the next update.

@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-case "$experiment" in E0|E1|E2|E3|E0_detach|E1_detach|E1_safe|E1_exact|E1_amortized) ;; *) echo 'unknown experiment' >&2; exit 2 ;; esac
+case "$experiment" in E0|E1|E2|E3|E0_detach|E1_detach|E1_safe|E1_exact|E1_amortized|E1_task_anchored) ;; *) echo 'unknown experiment' >&2; exit 2 ;; esac
 case "$shot" in 1|5) ;; *) echo 'shot must be 1 or 5' >&2; exit 2 ;; esac
 case "$mode" in train|eval) ;; *) echo 'mode must be train or eval' >&2; exit 2 ;; esac
 case "$activation_offload" in off|diagnostics|all) ;; *) echo 'activation-offload must be off/diagnostics/all' >&2; exit 2 ;; esac

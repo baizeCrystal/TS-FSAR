@@ -6,9 +6,31 @@ import unittest
 import torch
 
 from experiments.dto_kd.controller import DTOController, closed_form_weights, gradient_metrics
+from experiments.dto_kd.exact import task_anchored_kl_weight
 
 
 class DTOControllerTest(unittest.TestCase):
+    def test_task_anchor_keeps_task_and_bounds_conflicting_kl(self):
+        class Tiny(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = torch.nn.Module()
+                self.model.side_weight = torch.nn.Parameter(torch.tensor([1., 0.]))
+
+        model = Tiny()
+        weight = model.model.side_weight
+        task = (weight * torch.tensor([1., 0.])).sum()
+        # The weighted KL direction is opposite to task and twice its norm.
+        distill = (weight * torch.tensor([-20., 0.])).sum()
+        metrics = task_anchored_kl_weight(
+            model, distill, task, base_task_alpha=1.0,
+            base_distill_alpha=0.1, eps=1e-8, kappa=0.0, rho=1.0)
+        self.assertEqual(metrics['task_coefficient'], 1.0)
+        self.assertGreaterEqual(metrics['lambda_kl'], 0.0)
+        self.assertLessEqual(metrics['lambda_kl'], 1.0)
+        self.assertTrue(metrics['task_first_order_nonnegative'])
+        self.assertLess(metrics['effective_kl_coefficient'], 0.1)
+
     def test_closed_form_conflict_is_clipped_and_sum_one(self):
         p1, p2 = closed_form_weights(torch.tensor([1.0, 0.0]), torch.tensor([-1.0, 0.0]))
         self.assertAlmostEqual(float(p1 + p2), 1.0, places=6)

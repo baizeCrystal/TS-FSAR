@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from trainers.ts_fsar import TS_FSAR
 
 from .controller import DTOController
-from .exact import log_loss, shared_lsn_weights
+from .exact import log_loss, shared_lsn_weights, task_anchored_kl_weight
 
 
 class DTOTSFSAR(TS_FSAR):
@@ -28,7 +28,7 @@ class DTOTSFSAR(TS_FSAR):
         dto = getattr(cfg, "DTO_KD", None)
         self.dto_mode = getattr(dto, "MODE", "off") if dto is not None else "off"
         self.dto_detach_teacher = bool(getattr(dto, 'DETACH_TEACHER', False))
-        if self.dto_mode in ('safe_dynamic', 'paper_exact', 'paper_amortized') and not self.dto_detach_teacher:
+        if self.dto_mode in ('safe_dynamic', 'paper_exact', 'paper_amortized', 'task_anchored') and not self.dto_detach_teacher:
             raise ValueError(self.dto_mode + ' requires DETACH_TEACHER=true')
         self.dto_controller = DTOController(
             eta=float(getattr(dto, "ETA", 0.01)),
@@ -168,6 +168,21 @@ class DTOTSFSAR(TS_FSAR):
                 'distill_coefficient': p_dist / d if d >= eps else 0.,
                 'auxiliary_coefficient': 1., 'log_loss_floor': eps,
                 'distill_log_floor_active': d < eps, 'task_log_floor_active': t < eps,
+            }
+        elif self.dto_mode == 'task_anchored':
+            # TS-FSAR adaptation: DCM matching CE is primary. Keep its
+            # original coefficient and attenuate only KL on conflict/scale.
+            kappa = float(getattr(self.cfg.DTO_KD, 'TASK_ANCHOR_KAPPA', 0.0))
+            rho = float(getattr(self.cfg.DTO_KD, 'TASK_ANCHOR_RHO', 1.0))
+            solver = task_anchored_kl_weight(
+                self, distill, task, base_vis, base_kd,
+                float(self.cfg.DTO_KD.EPS), kappa=kappa, rho=rho)
+            coordinated = base_vis * task + solver['effective_kl_coefficient'] * distill
+            self.dto_last_metrics = {
+                **solver,
+                'task_loss': float(task.detach()),
+                'distill_loss': float(distill.detach()),
+                'auxiliary_coefficient': 1.,
             }
         elif self.dto_mode == "dynamic":
             coordinated = self.dto_controller.weighted_log_objective(distill, task)
