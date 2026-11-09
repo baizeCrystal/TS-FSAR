@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Run from an activated tsfsar-dto-kd environment; never stop another queue.
+set -euo pipefail
+METHOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$METHOD_DIR/../.."
+SHOTS=1
+GPUS=4
+ASSETS=/data/fsar_workspace/psds_assets
+DATA=/data/fsar_workspace/datasets/SSv2-Small
+OUTPUT=''
+PREPARE=false
+while (($#)); do
+  case "$1" in
+    --shots) SHOTS="$2"; shift 2 ;;
+    --gpus) GPUS="$2"; shift 2 ;;
+    --assets-dir) ASSETS="$2"; shift 2 ;;
+    --data-root) DATA="$2"; shift 2 ;;
+    --output-root) OUTPUT="$2"; shift 2 ;;
+    --prepare-in-background) PREPARE=true; shift ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2
+export TSFSAR_CPU_THREADS=2 PYTHONDONTWRITEBYTECODE=1
+export TMPDIR=/data/fsar_workspace/runtime_tmp
+export TSFSAR_RUNTIME_TMPDIR="$TMPDIR"
+mkdir -p "$TMPDIR"
+PYTHON="${PYTHON:-python}"
+OUTPUT="${OUTPUT:-/data/fsar_workspace/clsctm_joint_results/seed0_$(date +%Y%m%d_%H%M%S)}"
+[[ ! -e "$OUTPUT" ]] || { echo "Output already exists: $OUTPUT"; exit 1; }
+mkdir -p "$(dirname "$OUTPUT")"
+if [[ "$PREPARE" == false ]]; then
+  # Include CPU checks and asset preparation in nohup too: closing Terminal
+  # during these stages must not kill the pipeline.
+  LOG="${OUTPUT}.launcher.log"
+  [[ ! -e "$LOG" ]] || { echo "Launcher log already exists: $LOG"; exit 1; }
+  nohup bash "$METHOD_DIR/launch_campus.sh" --prepare-in-background \
+    --shots "$SHOTS" --gpus "$GPUS" --assets-dir "$ASSETS" --data-root "$DATA" --output-root "$OUTPUT" \
+    > "$LOG" 2>&1 < /dev/null &
+  echo "后台管理进程 PID：$!"
+  echo "任务目录：$OUTPUT"
+  echo "管理日志：$LOG"
+  echo "查看启动：tail -n 40 -F '$LOG'"
+  exit 0
+fi
+"$PYTHON" -c 'import sys; from research.cls_ctm_joint_experiment.launch import allocations, check_gpu; [check_gpu(gpu) for _,gpu in allocations(sys.argv[1],sys.argv[2])]' "$SHOTS" "$GPUS"
+CUDA_VISIBLE_DEVICES='' "$PYTHON" -m unittest discover -s research/cls_ctm_joint_experiment/tests -v
+"$PYTHON" -u -m research.ps_ds_subspace_experiment.github_assets --assets-dir "$ASSETS"
+exec "$PYTHON" -u -m research.cls_ctm_joint_experiment.launch \
+  --shots "$SHOTS" --gpus "$GPUS" --assets-dir "$ASSETS" --data-root "$DATA" --output-root "$OUTPUT" \
+  < /dev/null

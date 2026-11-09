@@ -1,0 +1,56 @@
+{
+  "historical_campaign": "E0_metric_e1_seed0_gpu0_20261029_231000",
+  "checked_files_sha256": {
+    "/home/zyb/TS-FSAR/output/ctm_metric_mask/E0_metric_e1_seed0_gpu0_20261029_231000/metric_mask/config.yaml": "cf9d854f0ba1fc2a4b77b788e22898f5f852fc567df5fbaa4186be2668a5b2b5",
+    "/home/zyb/TS-FSAR/output/ctm_metric_mask/E0_metric_e1_seed0_gpu0_20261029_231000/metric_mask/optimizer_groups.json": "617ce1850450d9af1f2fa0033ffcc9789b8906be9206f74a532608dd33d9aa0e",
+    "/home/zyb/TS-FSAR/experiments/ctm_metric_mask/core.py": "58162d0f82afab703fd43d08fdb19de2ce6ab871201bc4a08a5768fde0a2f09b",
+    "/home/zyb/TS-FSAR/experiments/ctm_metric_mask/entry.py": "32157b537ec96beaec3784b1c79389274f0d238d4383986177774fccef6dfd5e",
+    "/home/zyb/TS-FSAR/experiments/ctm_metric_mask/prepare.py": "dae683695a19744e9f6a47f398b14e3c758cd4a10efe7115b8af634ce6007ce9"
+  },
+  "optimizer": {
+    "MAX_EPOCH": 300,
+    "WEIGHT_DECAY": 0.1,
+    "OPTIM_METHOD": "adamw",
+    "NESTEROV": true,
+    "GENERATOR_LR": 0.00025,
+    "LSN_LR": 0.00025,
+    "LSNHEAD_LR": 0.00025,
+    "ADAPTER_ALPHA": 1.0
+  },
+  "historical_ctm": {
+    "MODE": "e1",
+    "HIDDEN_DIM": 256,
+    "NUM_HEADS": 4,
+    "MASK_LAMBDA": 0.1,
+    "DROPOUT": 0.0,
+    "INIT_IDENTITY": true
+  },
+  "metric_intervention": {
+    "APPLY_TO": "metric_cls_and_patch",
+    "AUXILIARY_ORIGINAL": true,
+    "TSM_CONDITION_ORIGINAL": true
+  },
+  "training": {
+    "NUM_TRAIN_TASKS": 10000,
+    "BATCH_SIZE_PER_TASK": 1,
+    "VIS_ALPHA": 1.0,
+    "CLS_ALPHA": 2.0,
+    "SIDE_CLS_ALPHA": 0.1,
+    "KD_ALPHA": 0.1,
+    "VAL_FRE_ITER": 500
+  },
+  "retained": [
+    "fresh CLIP/PCA initialization",
+    "four original optimizer groups",
+    "all CE and attached global KL",
+    "ungated auxiliary/TSM inputs",
+    "AMP initial scale 128"
+  ],
+  "deliberate_changes": [
+    "current CLS mean/variance/nearest-competitor summary",
+    "fixed paired training/test replay",
+    "first selection at 2500",
+    "matched fresh E0 training control",
+    "CPU saved-activation offload"
+  ]
+}

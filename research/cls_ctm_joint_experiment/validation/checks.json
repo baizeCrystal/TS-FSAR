@@ -1,0 +1,15 @@
+{
+  "date": "2026-11-09",
+  "implementation_sha256": "a5c5881fb20556c31176d523d02547feaab39192978ccd2d351e8e9b1747e21f",
+  "python_environment": "/home/zyb/TS-FSAR/.conda-env/bin/python",
+  "cpu_tests_passed": 7,
+  "cuda_unit_tests_not_run_locally": 1,
+  "original_files_modified": false,
+  "source_and_official_per_shot_configs_audited": true,
+  "python_ast_parse_passed": true,
+  "shell_syntax_passed": true,
+  "local_gpu_training_performed": false,
+  "campus_cuda_acceptance_required": true,
+  "accuracy_results_available": false,
+  "frozen_clsctm_regression_tests_passed": 16
+}
