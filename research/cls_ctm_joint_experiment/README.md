@@ -72,7 +72,7 @@ bash research/cls_ctm_joint_experiment/launch_campus.sh --shots 1 --gpus 4
 指定 GPU 有进程或异常 ECC 时拒绝启动，不停止已有任务。
 
 整个准备／验收／训练／测评由 nohup 后台管理，脚本立即打印管理日志的绝对路径。
-所有新 checkpoint、输出、临时文件置于 `/data/fsar_workspace/`，资源复用 `psds_assets`。
+新 checkpoint 和输出置于 `/data/fsar_workspace/`，GitHub 资源复用 `psds_assets`；Python multiprocessing 临时文件固定置于本机 `/tmp/tsfsar-joint-$UID`，避免 NFS `.nfs*` 清理错误。
 Github 资源需要之前已经登录的 `gh`，不新建仓库、不上传数据。
 
 准备／验收日志：

@@ -27,4 +27,11 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
 export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-2}"
 export PYTHONDONTWRITEBYTECODE=1
+# Python multiprocessing temp dirs must stay on local storage. On the NFS
+# workspace, unlinking an open file leaves .nfs* and can make finalizers fail.
+LOCAL_TMPDIR="/tmp/tsfsar-joint-${UID}"
+mkdir -p "$LOCAL_TMPDIR"
+export TMPDIR="$LOCAL_TMPDIR"
+export TMP="$LOCAL_TMPDIR"
+export TEMP="$LOCAL_TMPDIR"
 exec "$PYTHON" -u -m research.cls_ctm_joint_experiment.pipeline "${ARGS[@]}"
