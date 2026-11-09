@@ -11,5 +11,6 @@
   "local_gpu_training_performed": false,
   "campus_cuda_acceptance_required": true,
   "accuracy_results_available": false,
-  "frozen_clsctm_regression_tests_passed": 16
+  "frozen_clsctm_regression_tests_passed": 16,
+  "cuda_offload_comparison": "allclose rtol=3e-3 atol=3e-5; finite/coverage/update checks retained"
 }
