@@ -45,8 +45,14 @@ def run(args):
             for name in values:
                 torch.testing.assert_close(values[name],reference['values'][name],rtol=0,atol=0)
             if grads.keys()!=reference['gradients'].keys():raise RuntimeError('gradient coverage differs')
-            for name in grads:
-                torch.testing.assert_close(grads[name],reference['gradients'][name],rtol=3e-3,atol=3e-5,msg=name)
+            # Joint CTM intentionally adds a support-dependent path into the
+            # existing trainable modules. Therefore E1's old-module gradients
+            # need not equal E0's gradients even when the forward gate is 1.
+            # Check finite values and identical parameter coverage instead.
+            if not all(bool(torch.isfinite(g).all()) for g in grads.values()):
+                raise RuntimeError('E1 has non-finite existing-model gradients')
+            if not all(bool(torch.isfinite(g).all()) for g in reference['gradients'].values()):
+                raise RuntimeError('E0 has non-finite existing-model gradients')
             if norms['ctm_generator']<=0:raise RuntimeError('new output projector has no gradient')
             before={n:p.detach().cpu().clone() for n,p in model.named_parameters() if p.requires_grad}
             scaler.step(optimizer);scaler.update()
@@ -56,7 +62,8 @@ def run(args):
             if not all(changed.values()):raise RuntimeError('joint update missing: '+str(changed))
             write_new(destination,dict(passed=True,episode_id=reference['episode_id'],
                 initialization_sha256=report['sha256'],finite_common_amp_scale=scale,
-                native_loss_and_auxiliary_inputs_exact=True,existing_gradients_close=True,
+                native_loss_and_auxiliary_inputs_exact=True,existing_gradients_finite_and_covered=True,
+                joint_gate_may_change_existing_gradients=True,
                 all_joint_groups_updated=changed,activation_offload_verified=True))
         observer.close()
         del model,embeddings,bank,optimizer,observer,batch,images,support,target,real,loss,result,grads,values,scaler
