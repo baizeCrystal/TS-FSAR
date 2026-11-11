@@ -1,0 +1,8 @@
+{
+  "source": "trainers/ts_fsar.py",
+  "git_revision": "688685c",
+  "source_sha256": "4a66b34ecc89121e8688e1a5fcffc34e937e05a3c90c95a3bcc6e4d6ee39b9e6",
+  "snapshot": "frozen_ts_fsar.py",
+  "snapshot_sha256": "ca4cba1d79a824f471feeb74034db8ed3592bc6bfd9a6c4065df10ac4fa90072",
+  "change": "only append final newline; all original implementation retained"
+}

@@ -1,0 +1,16 @@
+{
+  "source": "/home/zyb/TS-FSAR/output/multi_metric_diagnostics/E0_patchcos_otam_20261104_233227/novel_1shot",
+  "historical": "/home/zyb/TS-FSAR/output/tsm_class_discriminability/E0_best_gpu2_20261022_162128/novel_1shot",
+  "source_episodes_sha256": "16e0f05390d04581a116beb7d899b14fba18e8c46e4475f125cb107e4e361651",
+  "selection": "first 200 unchanged episodes; no outcome selection",
+  "checkpoint_sha256": "78aae7edcbea1f5a48f17aa28d9631ccf680f69c08535b40083cfaa4a46cf5cf",
+  "checkpoint_training_shot": 1,
+  "inference_shot": 1,
+  "E0_sampling": "official uniform-bin random (rate=50), replay locked indices",
+  "historical_names_not_reused": "old E1/E2 denote different metrics; only old E0 is imported",
+  "files": {
+    "episodes.jsonl": "3d9a087fb6ee93ca95022599aa2c3b3336376cafff9735caab15af786008ee35",
+    "config.json": "514225b20c480042d9a66f73b50d29c56cda79baef88fdf9395e15eb251ca6ea",
+    "reference.json": "3d51af69d84dcc63dbaa79059af05b52a8e0686617c05a29a12b61afc8d65053"
+  }
+}

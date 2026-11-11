@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-11",
+  "device": "CPU only; CUDA_VISIBLE_DEVICES was empty for checks",
+  "python": "/home/zyb/miniconda3/envs/msqnet/bin/python",
+  "test_command": "CUDA_VISIBLE_DEVICES='' TEST_MODEL_PARITY=1 PYTHONPATH=$PWD/.runtime-deps /home/zyb/miniconda3/envs/msqnet/bin/python -m unittest experiments.temporal_sampling.test_cpu -v",
+  "unit_tests": {"passed": 23, "skipped": 0},
+  "covers": [
+    "exact gamma=1 locked-index replay, legal monotone 8-frame outputs, extremely short clips and duplicates",
+    "seed determinism, cache identity separation, cache budgets and array roundtrip",
+    "unchanged episode identities and complete support perturbations",
+    "episode-cluster bootstrap, known prediction/margin changes and output schema",
+    "time interpolation/shared-frame handling without semantic claims",
+    "mock end-to-end E0 then E1 query/support/both outputs and overwrite refusal",
+    "CPU synthetic features: 1/5-shot readout/native TS_FSAR.forward parity with shuffled support order"
+  ],
+  "real_video_pixel_replay": {
+    "1shot_first_episode": {
+      "preprocessed_shape": [80, 3, 224, 224],
+      "sha256": "61af0cd895aa269a4006cb7b81bf4afa80e9b8cf7368e018376cb842c4c2712e",
+      "matches_history": true
+    },
+    "5shot_first_episode": {
+      "preprocessed_shape": [240, 3, 224, 224],
+      "sha256": "ae3e8db0fa5ae69187f24c64456dd9f93471c86caa8d8c62b18ef62fd08779d9",
+      "matches_history": true
+    }
+  },
+  "preflight": {
+    "1shot": {"episodes": 200, "unique_videos": 1384, "passed": true},
+    "5shot": {"episodes": 200, "unique_videos": 2218, "passed": true},
+    "checkpoint_sha256_verified": true,
+    "model_forward": "not run"
+  },
+  "single_video_decode_smoke": {
+    "video_id": "153081", "all_seven_schemes_shape": [8, 240, 427, 3], "passed": true
+  },
+  "offline_mock_report_and_matrix_visualization": {
+    "passed": true, "matrix_png_shape_pixels": [1430, 1170], "mock_only": true
+  },
+  "real_checkpoint_inference": "NOT RUN on CPU or GPU in this task",
+  "formal_classification_results": "none",
+  "gpu_initialization_native_feature_batching_parity": "requires campus smoke test",
+  "research_hypotheses": "H1/H1a/H1b untested; no positive or negative model conclusion"
+}
