@@ -4,6 +4,13 @@
   "python": "/home/zyb/miniconda3/envs/msqnet/bin/python",
   "test_command": "CUDA_VISIBLE_DEVICES='' TEST_MODEL_PARITY=1 PYTHONPATH=$PWD/.runtime-deps /home/zyb/miniconda3/envs/msqnet/bin/python -m unittest experiments.temporal_sampling.test_cpu -v",
   "unit_tests": {"passed": 23, "skipped": 0},
+  "clean_checkout_validation": {
+    "git_revision": "6c11b6b",
+    "passed": 23,
+    "skipped": 0,
+    "depends_on_uncommitted_project_files": false,
+    "uses_existing_environment_dependencies": true
+  },
   "covers": [
     "exact gamma=1 locked-index replay, legal monotone 8-frame outputs, extremely short clips and duplicates",
     "seed determinism, cache identity separation, cache budgets and array roundtrip",
